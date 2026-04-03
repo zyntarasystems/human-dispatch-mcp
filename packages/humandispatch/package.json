@@ -1,0 +1,14 @@
+{
+  "name": "@zyntara/humandispatch",
+  "version": "0.1.0",
+  "description": "Alias for human-dispatch-mcp — dispatches physical-world tasks to humans through a unified API",
+  "main": "index.js",
+  "bin": {
+    "humandispatch": "index.js"
+  },
+  "keywords": ["mcp", "human-in-the-loop", "mechanical-turk", "task-dispatch"],
+  "license": "MIT",
+  "peerDependencies": {
+    "human-dispatch-mcp": "*"
+  }
+}
