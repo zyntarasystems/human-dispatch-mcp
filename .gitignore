@@ -9,6 +9,9 @@ dist/
 .env.local
 .env.production
 
+# MCP registry credentials
+.mcpregistry_*
+
 # OS junk
 .DS_Store
 Thumbs.db
