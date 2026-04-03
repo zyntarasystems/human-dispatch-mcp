@@ -1,0 +1,26 @@
+{
+  "name": "human-dispatch-mcp",
+  "version": "0.1.0",
+  "description": "MCP server that dispatches physical-world tasks to humans through a unified API",
+  "main": "dist/index.js",
+  "bin": {
+    "human-dispatch-mcp": "dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "dev": "tsc --watch"
+  },
+  "keywords": ["mcp", "human-in-the-loop", "mechanical-turk", "task-dispatch"],
+  "license": "MIT",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.12.1",
+    "express": "^4.21.2",
+    "zod": "^3.24.4"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.2",
+    "@types/node": "^22.15.2",
+    "typescript": "^5.8.3"
+  }
+}
