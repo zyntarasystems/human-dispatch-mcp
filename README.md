@@ -21,6 +21,36 @@ npm run build
 node dist/index.js
 ```
 
+## Testing with MCP Inspector
+
+The easiest way to verify the server is working:
+
+```bash
+npx @modelcontextprotocol/inspector node dist/index.js
+```
+
+Open `http://localhost:5173`, enter the proxy session token shown in your terminal, and click **Connect**.
+
+Once connected, call `human_dispatch_task` using **Raw JSON** input mode (the UI's field-by-field mode has parsing issues with nested objects):
+
+```json
+{
+  "description": "Test task — verify the MCP server is routing correctly",
+  "category": "digital_micro",
+  "task_type": "digital",
+  "budget": { "max_usd": 5, "currency": "USD" },
+  "deadline": {
+    "complete_by": "2026-04-10T18:00:00Z",
+    "urgency": "low"
+  },
+  "proof_required": ["text_report"],
+  "quality_sla": "low",
+  "callback_url": null
+}
+```
+
+You should get back a task ID with `"backend_id": "manual"` — the manual backend is always available without any API keys configured.
+
 ## MCP Client Configuration
 
 ### Claude Desktop / Cursor / Any MCP Client
