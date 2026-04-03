@@ -8,7 +8,7 @@ Routes tasks across multiple backends (Amazon Mechanical Turk, RentAHuman.ai, an
 
 ```bash
 # Clone and install
-git clone <repo-url>
+git clone https://github.com/zyntarasystems/human-dispatch-mcp.git
 cd human-dispatch-mcp
 npm install
 
