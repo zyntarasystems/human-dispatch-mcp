@@ -1,6 +1,6 @@
 {
   "name": "human-dispatch-mcp",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "MCP server that dispatches physical-world tasks to humans through a unified API",
   "main": "dist/index.js",
   "bin": {
