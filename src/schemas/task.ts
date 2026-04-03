@@ -92,9 +92,25 @@ export const TaskRequestSchema = z.object({
     .describe("Preferred backend services to route this task to, tried in order. If omitted, the router picks the best backend automatically."),
   fallback_chain: z.array(BackendIdSchema).optional()
     .describe("Ordered list of fallback backends if the preferred ones fail. The 'manual' backend is always available as a last resort."),
-  callback_url: z.string().url().nullable().optional()
+  callback_url: z.string().url()
+    .refine((url) => {
+      try {
+        const { hostname, protocol } = new URL(url);
+        if (protocol !== "https:") return false;
+        if (/^(localhost|127\.|10\.|192\.168\.|172\.(1[6-9]|2[0-9]|3[01])\.|169\.254\.|::1|fc00:|fe80:)/i.test(hostname)) return false;
+        return true;
+      } catch {
+        return false;
+      }
+    }, { message: "callback_url must be an HTTPS URL pointing to a public host" })
+    .nullable().optional()
     .describe("Webhook URL to receive status update notifications. Set to null or omit if you will poll for status instead."),
-  metadata: z.record(z.string(), z.string()).optional()
+  metadata: z.record(
+    z.string().max(64),
+    z.string().max(256),
+  ).refine(val => Object.keys(val).length <= 20, {
+    message: "metadata cannot have more than 20 keys",
+  }).optional()
     .describe("Arbitrary key-value pairs for your own tracking (e.g. {'order_id': '12345', 'agent_name': 'my-bot'})"),
 }).strict().describe("Complete task submission — everything the system needs to route and track a human task");
 

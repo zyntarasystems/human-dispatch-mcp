@@ -43,6 +43,8 @@ Add to your MCP client config:
 
 ### HTTP Transport
 
+> **Note:** HTTP transport binds to `127.0.0.1` only. For remote access, place a TLS-terminating reverse proxy (e.g. nginx, Caddy) in front of the server. Never expose the port directly.
+
 ```json
 {
   "mcpServers": {
@@ -166,7 +168,7 @@ asyncio.run(dispatch_photo_task())
 | `PORT` | `3000` | HTTP port (when TRANSPORT=http) |
 | `MTURK_ACCESS_KEY_ID` | — | AWS access key for Mechanical Turk |
 | `MTURK_SECRET_ACCESS_KEY` | — | AWS secret key for Mechanical Turk |
-| `MTURK_SANDBOX` | `true` | Use MTurk sandbox environment |
+| `MTURK_SANDBOX` | `true` | Use MTurk sandbox environment (must be `"true"` or `"false"`) |
 | `RENTAHUMAN_API_KEY` | — | API key for RentAHuman.ai |
 | `MANUAL_WEBHOOK_URL` | — | Webhook URL for manual task notifications |
 

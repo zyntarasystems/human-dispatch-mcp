@@ -33,7 +33,11 @@ export class MTurkAdapter extends BaseBackendAdapter {
     super();
     this.accessKeyId = process.env["MTURK_ACCESS_KEY_ID"];
     this.secretAccessKey = process.env["MTURK_SECRET_ACCESS_KEY"];
-    this.sandbox = process.env["MTURK_SANDBOX"] !== "false";
+    const sandboxEnv = process.env["MTURK_SANDBOX"];
+    if (sandboxEnv !== undefined && sandboxEnv !== "true" && sandboxEnv !== "false") {
+      console.error(`[warn] MTURK_SANDBOX="${sandboxEnv}" is not "true" or "false" — defaulting to sandbox mode`);
+    }
+    this.sandbox = sandboxEnv !== "false";
   }
 
   getCapabilities(): BackendCapabilities {

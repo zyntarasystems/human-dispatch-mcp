@@ -8,9 +8,14 @@ import {
 } from "../types.js";
 
 export class TaskStore {
+  private static readonly MAX_TASKS = 10_000;
   private readonly tasks = new Map<string, Task>();
 
   createTask(request: TaskRequest): Task {
+    if (this.tasks.size >= TaskStore.MAX_TASKS) {
+      throw new Error("Task store capacity exceeded. Cancel or wait for existing tasks to complete.");
+    }
+
     const now = new Date().toISOString();
     const task: Task = {
       id: randomUUID(),

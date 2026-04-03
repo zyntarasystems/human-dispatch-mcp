@@ -75,8 +75,9 @@ async function main(): Promise<void> {
       await httpTransport.handleRequest(req, res, req.body);
     });
 
-    app.listen(port, () => {
-      console.error(`[init] ${SERVER_NAME} v${SERVER_VERSION} listening on http://localhost:${port}/mcp (Streamable HTTP)`);
+    console.error(`[warn] HTTP transport is active. Ensure a TLS-terminating reverse proxy is in front of this server. Never expose port directly.`);
+    app.listen(port, "127.0.0.1", () => {
+      console.error(`[init] ${SERVER_NAME} v${SERVER_VERSION} listening on http://127.0.0.1:${port}/mcp (Streamable HTTP)`);
     });
   } else {
     const stdioTransport = new StdioServerTransport();
