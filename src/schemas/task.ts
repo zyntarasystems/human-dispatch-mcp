@@ -46,8 +46,7 @@ export const QualitySLASchema = z.enum([
 ]).describe("Quality/speed tradeoff: low=fastest/cheapest, medium=default, high=verified workers with multi-proof");
 
 export const BackendIdSchema = z.enum([
-  "mturk",
-  "rentahuman",
+  "webhook_provider",
   "manual",
 ]).describe("Identifier for a backend task-routing service");
 
@@ -132,3 +131,72 @@ export const TaskFilterSchema = z.object({
   offset: z.number().int().min(0).default(0)
     .describe("Number of tasks to skip for pagination (default 0)"),
 }).strict().describe("Filters for listing tasks with pagination support");
+
+// ─── Provider Schemas ─────────────────────────────────────
+
+const httpsPublicUrl = z.string().url()
+  .refine((url) => {
+    try {
+      const { hostname, protocol } = new URL(url);
+      if (protocol !== "https:") return false;
+      if (/^(localhost|127\.|10\.|192\.168\.|172\.(1[6-9]|2[0-9]|3[01])\.|169\.254\.|::1|fc00:|fe80:)/i.test(hostname)) return false;
+      return true;
+    } catch {
+      return false;
+    }
+  }, { message: "Must be an HTTPS URL pointing to a public host" });
+
+export const ProviderRegistrationSchema = z.object({
+  name: z.string().min(1).max(200)
+    .describe("Human-readable provider name (e.g. 'Smith & Associates Law')"),
+  webhook_url: httpsPublicUrl
+    .describe("HTTPS URL where tasks will be POSTed"),
+  webhook_secret: z.string().min(32).max(256)
+    .describe("Shared secret for HMAC-SHA256 webhook signatures (min 32 chars)"),
+  categories: z.array(TaskCategorySchema).min(1)
+    .describe("Task categories this provider handles"),
+  task_types: z.array(TaskTypeSchema).min(1)
+    .describe("Task types this provider supports (physical, digital, hybrid)"),
+  regions: z.array(z.string().min(1).max(20)).min(1)
+    .describe("Regions served (e.g. ['US', 'EU', '*'] where * = global)"),
+  min_budget_usd: z.number().min(0)
+    .describe("Minimum task budget this provider accepts (USD)"),
+  max_budget_usd: z.number().positive()
+    .describe("Maximum task budget this provider accepts (USD)"),
+  max_concurrent_tasks: z.number().int().min(1).max(10000).default(10)
+    .describe("Maximum number of tasks this provider can handle concurrently"),
+}).strict().refine(data => data.min_budget_usd <= data.max_budget_usd, {
+  message: "min_budget_usd must be <= max_budget_usd",
+}).describe("Register a new webhook provider to receive dispatched tasks");
+
+export const ProviderFilterSchema = z.object({
+  category: TaskCategorySchema.optional()
+    .describe("Filter providers by supported category"),
+  region: z.string().optional()
+    .describe("Filter providers by supported region"),
+  active_only: z.boolean().default(true)
+    .describe("Only show active providers (default true)"),
+}).strict().describe("Filters for listing providers");
+
+export const ProviderIdSchema = z.object({
+  provider_id: z.string().uuid()
+    .describe("The UUID of the provider to operate on"),
+}).strict().describe("Provider identifier");
+
+export const CallbackPayloadSchema = z.object({
+  status: z.enum(["completed", "failed"])
+    .describe("Outcome of the task"),
+  result: z.record(z.unknown()).optional()
+    .describe("The deliverable/result data"),
+  proof: z.array(z.object({
+    type: ProofTypeSchema,
+    url: z.string().url().optional(),
+    text: z.string().optional(),
+    submitted_at: z.string().datetime(),
+  })).optional()
+    .describe("Proof-of-completion items"),
+  actual_cost_usd: z.number().min(0).optional()
+    .describe("Actual cost charged for the task"),
+  notes: z.string().max(2000).optional()
+    .describe("Provider notes about the task"),
+}).strict().describe("Payload from providers reporting task completion or failure");

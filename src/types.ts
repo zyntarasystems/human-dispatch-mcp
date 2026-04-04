@@ -44,8 +44,7 @@ export enum QualitySLA {
 }
 
 export enum BackendId {
-  MTURK = "mturk",
-  RENTAHUMAN = "rentahuman",
+  WEBHOOK_PROVIDER = "webhook_provider",
   MANUAL = "manual",
 }
 
@@ -149,4 +148,47 @@ export interface BackendAdapter {
   submitTask(task: Task): Promise<BackendSubmitResult>;
   getStatus(backend_task_id: string): Promise<BackendStatusResult>;
   cancelTask(backend_task_id: string): Promise<boolean>;
+}
+
+// ─── Webhook Provider Types ───────────────────────────────
+
+export type WebhookEvent = "task.new" | "task.cancel" | "provider.verify";
+
+export interface ProviderStats {
+  completed_count: number;
+  failed_count: number;
+  reliability_score: number;       // 0-1, computed completed/(completed+failed)
+  avg_completion_minutes: number;
+}
+
+export interface WebhookProvider {
+  id: string;
+  name: string;
+  webhook_url: string;
+  webhook_secret: string;
+  categories: TaskCategory[];
+  task_types: TaskType[];
+  regions: string[];               // e.g. ["US", "US-CA", "EU", "*"] (* = global)
+  min_budget_usd: number;
+  max_budget_usd: number;
+  max_concurrent_tasks: number;
+  is_active: boolean;
+  current_task_count: number;
+  stats: ProviderStats;
+  registered_at: string;
+  last_seen_at: string;
+}
+
+export interface WebhookDispatchResult {
+  accepted: boolean;
+  external_id?: string;
+  reason?: string;
+}
+
+export interface WebhookCallbackPayload {
+  status: "completed" | "failed";
+  result?: Record<string, unknown>;
+  proof?: ProofSubmission[];
+  actual_cost_usd?: number;
+  notes?: string;
 }
