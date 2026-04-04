@@ -15,7 +15,7 @@ Returns tasks sorted by creation time (newest first). Use filters to narrow resu
 
 PARAMETERS:
 - status: (optional) Filter by task status: pending, routed, assigned, in_progress, awaiting_review, completed, failed, cancelled
-- backend_id: (optional) Filter by backend: mturk, rentahuman, manual
+- backend_id: (optional) Filter by backend: webhook_provider, manual
 - category: (optional) Filter by category: errand, photo_video, data_collection, verification, delivery, digital_micro, in_person, custom
 - limit: (optional) Max results to return, 1-100, default 20
 - offset: (optional) Skip N results for pagination, default 0
@@ -25,7 +25,7 @@ RETURNS: { total, count, tasks[], has_more, next_offset }
 EXAMPLES:
 1. List all tasks: {}
 2. List completed tasks: { status: "completed" }
-3. List physical tasks on RentAHuman: { backend_id: "rentahuman", limit: 10 }
+3. List webhook provider tasks: { backend_id: "webhook_provider", limit: 10 }
 4. Paginate: { limit: 5, offset: 5 }
 
 DON'T USE WHEN:

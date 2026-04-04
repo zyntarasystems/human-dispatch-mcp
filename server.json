@@ -1,55 +1,34 @@
 {
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "io.github.zyntarasystems/human-dispatch-mcp",
-  "description": "MCP server that dispatches physical-world tasks to humans through a unified API",
+  "description": "Universal dispatch layer that routes AI-agent tasks to human service providers via webhooks",
   "repository": {
     "url": "https://github.com/zyntarasystems/human-dispatch-mcp",
     "source": "github"
   },
-  "version": "0.2.2",
+  "version": "0.3.0",
   "packages": [
     {
       "registryType": "npm",
       "identifier": "human-dispatch-mcp",
-      "version": "0.2.2",
+      "version": "0.3.0",
       "transport": {
         "type": "stdio"
       },
       "environmentVariables": [
         {
-          "name": "RENTAHUMAN_API_KEY",
-          "description": "API key for the RentAHuman.ai backend",
-          "isRequired": false,
-          "format": "string",
-          "isSecret": true
-        },
-        {
-          "name": "MTURK_ACCESS_KEY_ID",
-          "description": "AWS access key ID for the Amazon Mechanical Turk backend",
-          "isRequired": false,
-          "format": "string",
-          "isSecret": true
-        },
-        {
-          "name": "MTURK_SECRET_ACCESS_KEY",
-          "description": "AWS secret access key for the Amazon Mechanical Turk backend",
-          "isRequired": false,
-          "format": "string",
-          "isSecret": true
-        },
-        {
-          "name": "MTURK_SANDBOX",
-          "description": "Set to \"false\" to use MTurk production environment (defaults to sandbox mode)",
-          "isRequired": false,
-          "format": "string",
-          "isSecret": false
-        },
-        {
           "name": "MANUAL_WEBHOOK_URL",
-          "description": "Webhook URL for the manual backend to send task notifications",
+          "description": "Webhook URL for the manual fallback backend to send task notifications",
           "isRequired": false,
           "format": "string",
           "isSecret": false
+        },
+        {
+          "name": "PROVIDERS_CONFIG",
+          "description": "JSON array of webhook provider objects to pre-seed on startup",
+          "isRequired": false,
+          "format": "string",
+          "isSecret": true
         }
       ]
     }

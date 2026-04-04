@@ -13,18 +13,20 @@ export function registerDispatchTool(
     "human_dispatch_task",
     `Dispatch a task to a human worker via the best available backend service.
 
-This is the primary tool for sending work to humans. You describe what needs to be done, and the system routes it to the most appropriate backend (Amazon Mechanical Turk for digital microtasks, RentAHuman.ai for physical/local tasks, or a manual fallback).
+This is the primary tool for sending work to humans. You describe what needs to be done, and the system routes it to the most appropriate registered webhook provider based on category, task type, region, and budget. If no providers match or accept, the task falls through to the manual fallback.
+
+Register providers first with human_register_provider, then dispatch tasks to them.
 
 PARAMETERS:
 - description: What the human should do. Be specific about location, timing, and deliverables.
 - category: Task category (errand, photo_video, data_collection, verification, delivery, digital_micro, in_person, custom)
 - task_type: physical (requires presence), digital (remote), or hybrid (both)
 - location: Where to perform the task (required for physical tasks). Include address or coordinates.
-- budget: Maximum USD to pay. Different backends have different ranges.
+- budget: Maximum USD to pay. Different providers have different ranges.
 - deadline: When it must be done, with urgency level.
 - proof_required: What evidence the worker must submit (photo, video, gps_checkin, text_report, receipt, signature).
 - quality_sla: low (fast/cheap), medium (default), high (verified workers, multiple proofs).
-- preferred_backends: Optional ordered list of backends to try first.
+- preferred_backends: Optional ordered list of backends to try first (webhook_provider, manual).
 - fallback_chain: Optional ordered fallback list if preferred backends fail.
 - callback_url: Optional webhook URL for status notifications.
 - metadata: Optional key-value pairs for your own tracking.
@@ -39,7 +41,7 @@ EXAMPLES:
 DON'T USE WHEN:
 - The task can be done by an AI (use an AI tool instead)
 - You need instant results (humans take minutes to hours)
-- The task requires specialized professional credentials not covered by the backends`,
+- No providers are registered (use human_register_provider first, or rely on manual fallback)`,
     TaskRequestSchema.shape,
     async (params) => {
       const parsed = TaskRequestSchema.parse(params);
@@ -52,9 +54,7 @@ DON'T USE WHEN:
         task_id: routed.id,
         status: routed.status,
         backend_id: routed.backend_id,
-        estimated_completion_minutes: routed.backend_id === "mturk" ? 30
-          : routed.backend_id === "rentahuman" ? 120
-          : 1440,
+        estimated_completion_minutes: routed.backend_id === "webhook_provider" ? 60 : 1440,
         estimated_cost_usd: routed.request.budget.max_usd,
         error: routed.error,
       };
