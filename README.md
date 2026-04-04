@@ -1,5 +1,7 @@
 # human-dispatch-mcp
 
+🌐 **[humandispatch.ai](https://humandispatch.ai)** — Homepage & provider docs
+
 **A universal dispatch layer for AI-agent-to-human task routing** — Any business (law firms, VA services, freelancers, agencies) can plug in via webhooks and start receiving AI-dispatched tasks in minutes.
 
 Routes tasks to registered webhook providers with smart matching, fallback chains, and proof-of-completion tracking. Any service provider registers a webhook, and the router matches tasks to providers based on capabilities, region, and budget.
