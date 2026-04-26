@@ -7,13 +7,25 @@ import {
   TaskStatus,
 } from "../types.js";
 
+const TERMINAL_STATUSES: ReadonlySet<TaskStatus> = new Set([
+  TaskStatus.COMPLETED,
+  TaskStatus.FAILED,
+  TaskStatus.CANCELLED,
+]);
+
 export class TaskStore {
   private static readonly MAX_TASKS = 10_000;
   private readonly tasks = new Map<string, Task>();
 
   createTask(request: TaskRequest): Task {
     if (this.tasks.size >= TaskStore.MAX_TASKS) {
-      throw new Error("Task store capacity exceeded. Cancel or wait for existing tasks to complete.");
+      this.evictOldestTerminal();
+    }
+    if (this.tasks.size >= TaskStore.MAX_TASKS) {
+      throw new Error(
+        "Task store capacity exceeded and no terminal tasks available to evict. " +
+        "All slots are held by in-flight work; cancel or wait for tasks to complete.",
+      );
     }
 
     const now = new Date().toISOString();
@@ -83,5 +95,20 @@ export class TaskStore {
     const paged = results.slice(filters.offset, filters.offset + filters.limit);
 
     return { total, tasks: paged };
+  }
+
+  private evictOldestTerminal(): void {
+    let oldestId: string | null = null;
+    let oldestUpdatedAt = "￿"; // sorts after any ISO 8601 string
+    for (const task of this.tasks.values()) {
+      if (!TERMINAL_STATUSES.has(task.status)) continue;
+      if (task.updated_at < oldestUpdatedAt) {
+        oldestUpdatedAt = task.updated_at;
+        oldestId = task.id;
+      }
+    }
+    if (oldestId !== null) {
+      this.tasks.delete(oldestId);
+    }
   }
 }
