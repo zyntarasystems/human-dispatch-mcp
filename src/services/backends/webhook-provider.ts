@@ -7,6 +7,7 @@ import {
   TaskStatus,
 } from "../../types.js";
 import { BaseBackendAdapter } from "./base.js";
+import { MAX_PROVIDER_CANDIDATES } from "../../constants.js";
 import { ProviderRegistry } from "../providers/registry.js";
 import { dispatchToProvider, dispatchCancelToProvider } from "../providers/webhook.js";
 
@@ -59,12 +60,16 @@ export class WebhookProviderAdapter extends BaseBackendAdapter {
   }
 
   async submitTask(task: Task): Promise<BackendSubmitResult> {
-    const candidates = this.registry.findMatchingProviders(task);
+    const allCandidates = this.registry.findMatchingProviders(task);
 
-    if (candidates.length === 0) {
+    if (allCandidates.length === 0) {
       throw this.wrapError("submitTask", "No matching providers found");
     }
 
+    // Cap the candidate walk so a misconfigured registry can't pin the
+    // dispatch loop to N * WEBHOOK_TIMEOUT_MS. Already sorted by reliability
+    // and speed, so we keep the strongest few.
+    const candidates = allCandidates.slice(0, MAX_PROVIDER_CANDIDATES);
     const errors: string[] = [];
 
     for (const provider of candidates) {
