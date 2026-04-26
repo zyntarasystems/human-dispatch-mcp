@@ -21,12 +21,22 @@ export function createCallbackRouter(
 ): ExpressRouter {
   const router = ExpressRouter();
 
-  // Use raw body parsing on this route for HMAC verification
+  // Use raw body parsing on this route for HMAC verification.
+  // Wrap the async handler in a top-level try/catch so any unhandled rejection
+  // is converted into a 500 instead of becoming an UnhandledPromiseRejection
+  // (which on Node >=15 default-terminates the process).
   router.post(
     "/callbacks/task/:taskId",
     raw({ type: "application/json" }),
-    (req: Request, res: Response) => {
-      void handleCallback(req, res, taskStore, webhookAdapter, registry);
+    async (req: Request, res: Response) => {
+      try {
+        await handleCallback(req, res, taskStore, webhookAdapter, registry);
+      } catch (err) {
+        console.error(`[callback] Unhandled error: ${err instanceof Error ? err.message : String(err)}`);
+        if (!res.headersSent) {
+          res.status(500).json({ error: "Internal server error" });
+        }
+      }
     },
   );
 
