@@ -13,6 +13,7 @@ import { WebhookProviderAdapter } from "./services/backends/webhook-provider.js"
 import { ManualAdapter } from "./services/backends/manual.js";
 import { ProviderRegistry } from "./services/providers/registry.js";
 import { createCallbackRouter } from "./services/providers/callback-handler.js";
+import { startTaskReaper } from "./services/task-reaper.js";
 import { registerDispatchTool } from "./tools/dispatch.js";
 import { registerStatusTool } from "./tools/status.js";
 import { registerCancelTool } from "./tools/cancel.js";
@@ -73,6 +74,10 @@ async function main(): Promise<void> {
 
   const taskStore = new TaskStore();
   const router = new Router(adapters, taskStore);
+
+  // Start the periodic reaper so tasks past their deadline release their
+  // provider's capacity slot rather than leaking current_task_count.
+  startTaskReaper(taskStore, webhookAdapter);
 
   const deps: ServerDeps = { taskStore, router, adapterMap, adapters, registry };
 

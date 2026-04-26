@@ -97,6 +97,23 @@ export class TaskStore {
     return { total, tasks: paged };
   }
 
+  /**
+   * Return all non-terminal tasks whose deadline.complete_by is older than
+   * the supplied ISO timestamp. Used by the reaper to time out tasks that
+   * never received a provider callback so their state (and the provider's
+   * current_task_count) can be released.
+   */
+  findExpired(beforeIso: string): Task[] {
+    const result: Task[] = [];
+    for (const task of this.tasks.values()) {
+      if (TERMINAL_STATUSES.has(task.status)) continue;
+      if (task.request.deadline.complete_by < beforeIso) {
+        result.push(task);
+      }
+    }
+    return result;
+  }
+
   private evictOldestTerminal(): void {
     let oldestId: string | null = null;
     let oldestUpdatedAt = "￿"; // sorts after any ISO 8601 string
