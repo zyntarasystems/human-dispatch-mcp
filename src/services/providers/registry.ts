@@ -14,6 +14,22 @@ function sanitizeForLog(value: unknown): string {
   return String(value).replace(/[\r\n\t]/g, " ").slice(0, 200);
 }
 
+// Match a task region against a provider's region list.
+// "*" wildcards match anything. Comparisons are case-insensitive, and a
+// broader provider region (e.g. "US") matches a more specific task region
+// (e.g. "US-CA") via hyphen-bounded prefix match. The reverse does not match:
+// a "US-CA"-only provider does not handle a generic "US" task.
+function regionMatches(providerRegions: string[], taskRegion: string): boolean {
+  const task = taskRegion.toLowerCase();
+  for (const r of providerRegions) {
+    if (r === "*") return true;
+    const provider = r.toLowerCase();
+    if (provider === task) return true;
+    if (task.startsWith(provider + "-")) return true;
+  }
+  return false;
+}
+
 interface ProviderFilters {
   category?: TaskCategory;
   region?: string;
@@ -85,9 +101,7 @@ export class ProviderRegistry {
 
     if (filters?.region) {
       const region = filters.region;
-      result = result.filter(p =>
-        p.regions.includes("*") || p.regions.includes(region),
-      );
+      result = result.filter(p => regionMatches(p.regions, region));
     }
 
     return result;
@@ -105,12 +119,10 @@ export class ProviderRegistry {
         if (req.budget.max_usd < p.min_budget_usd) return false;
         if (req.budget.max_usd > p.max_budget_usd) return false;
 
-        // Region matching: provider must serve the task's region or be global
-        if (req.location?.region) {
-          const taskRegion = req.location.region;
-          if (!p.regions.includes("*") && !p.regions.includes(taskRegion)) {
-            return false;
-          }
+        // Region matching: provider must serve the task's region or be global.
+        // See regionMatches() for the case-insensitive prefix semantics.
+        if (req.location?.region && !regionMatches(p.regions, req.location.region)) {
+          return false;
         }
 
         return true;
