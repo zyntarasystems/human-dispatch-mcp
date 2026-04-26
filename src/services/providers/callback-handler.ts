@@ -14,6 +14,34 @@ import { WebhookProviderAdapter } from "../backends/webhook-provider.js";
 import { ProviderRegistry } from "./registry.js";
 import { verifySignature } from "./webhook.js";
 
+// Per-provider token bucket. Burst up to BUCKET_CAPACITY callbacks, then
+// sustained REFILL_PER_SEC. Sized for one provider completing a fast batch
+// while still rejecting a runaway loop. Keys are validated provider UUIDs,
+// so the map is bounded by the registry cap (1000 from H3) — no separate
+// eviction path needed.
+const BUCKET_CAPACITY = 30;
+const REFILL_PER_SEC = 5;
+type Bucket = { tokens: number; lastRefill: number };
+const buckets = new Map<string, Bucket>();
+
+function consumeToken(providerId: string): boolean {
+  const now = Date.now();
+  let b = buckets.get(providerId);
+  if (!b) {
+    b = { tokens: BUCKET_CAPACITY, lastRefill: now };
+    buckets.set(providerId, b);
+  } else {
+    const elapsedSec = (now - b.lastRefill) / 1000;
+    if (elapsedSec > 0) {
+      b.tokens = Math.min(BUCKET_CAPACITY, b.tokens + elapsedSec * REFILL_PER_SEC);
+      b.lastRefill = now;
+    }
+  }
+  if (b.tokens < 1) return false;
+  b.tokens -= 1;
+  return true;
+}
+
 export function createCallbackRouter(
   taskStore: TaskStore,
   webhookAdapter: WebhookProviderAdapter,
@@ -67,6 +95,15 @@ async function handleCallback(
   const provider = registry.getProvider(providerId);
   if (!provider) {
     res.status(404).json({ error: "Provider not found" });
+    return;
+  }
+
+  // Per-provider rate limit. Applied after the registry lookup so the bucket
+  // map stays bounded by the registry cap rather than every claimed-but-bogus
+  // provider id. Verification (HMAC) happens after this so a flooding caller
+  // with a valid provider id can't burn CPU on signature work either.
+  if (!consumeToken(providerId)) {
+    res.status(429).json({ error: "Too many callback requests" });
     return;
   }
 
