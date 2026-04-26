@@ -4,8 +4,16 @@ import {
   BackendStatusResult,
   BackendSubmitResult,
   Task,
+  TaskCategory,
   TaskStatus,
 } from "../../types.js";
+
+const LOCATION_CATEGORIES: ReadonlySet<TaskCategory> = new Set([
+  TaskCategory.ERRAND,
+  TaskCategory.PHOTO_VIDEO,
+  TaskCategory.DELIVERY,
+  TaskCategory.IN_PERSON,
+]);
 import { BaseBackendAdapter } from "./base.js";
 import { MAX_PROVIDER_CANDIDATES } from "../../constants.js";
 import { ProviderRegistry } from "../providers/registry.js";
@@ -31,13 +39,21 @@ export class WebhookProviderAdapter extends BaseBackendAdapter {
     let supportsLocation = false;
     let minBudget = Infinity;
     let maxBudget = 0;
+    let minCompletionMinutes = Infinity;
 
     for (const p of providers) {
       if (p.task_types.some(t => t === "physical" || t === "hybrid")) supportsPhysical = true;
       if (p.task_types.some(t => t === "digital" || t === "hybrid")) supportsDigital = true;
-      if (p.regions.length > 0) supportsLocation = true;
+      // Location support is a category property, not a regions property — every
+      // provider has at least one region (schema min(1)) so the old
+      // regions.length>0 check was always true and skipped the routing
+      // location-penalty for providers that can't actually do location work.
+      if (p.categories.some(c => LOCATION_CATEGORIES.has(c as TaskCategory))) supportsLocation = true;
       if (p.min_budget_usd < minBudget) minBudget = p.min_budget_usd;
       if (p.max_budget_usd > maxBudget) maxBudget = p.max_budget_usd;
+      if (p.stats.avg_completion_minutes < minCompletionMinutes) {
+        minCompletionMinutes = p.stats.avg_completion_minutes;
+      }
     }
 
     return {
@@ -49,7 +65,10 @@ export class WebhookProviderAdapter extends BaseBackendAdapter {
       available_regions: ["*"],
       min_budget_usd: minBudget === Infinity ? 0 : minBudget,
       max_budget_usd: maxBudget === 0 ? 10000 : maxBudget,
-      avg_completion_minutes: 60,
+      // Use the fastest provider's average as the backend's headline metric
+      // for routing comparisons. Falls back to the previous default of 60
+      // when there are no providers yet.
+      avg_completion_minutes: minCompletionMinutes === Infinity ? 60 : minCompletionMinutes,
       requires_api_key: false,
       configured: this.registry.hasActiveProviders(),
     };

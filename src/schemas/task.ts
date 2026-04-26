@@ -62,12 +62,12 @@ export const TaskLocationSchema = z.object({
   address: z.string().describe("Human-readable street address where the task should be performed").optional(),
   latitude: z.number().min(-90).max(90).describe("Latitude coordinate of task location").optional(),
   longitude: z.number().min(-180).max(180).describe("Longitude coordinate of task location").optional(),
-  radius_km: z.number().positive().describe("Acceptable radius in kilometers from the specified point").optional(),
+  radius_km: z.number().positive().max(20_000).describe("Acceptable radius in kilometers from the specified point (max 20000)").optional(),
   region: z.string().describe("City, state, or country as a fallback when coordinates are not available").optional(),
 }).strict().describe("Location where the task should be performed — required for physical tasks");
 
 export const BudgetSchema = z.object({
-  max_usd: z.number().positive().describe("Maximum amount in USD you are willing to pay for this task"),
+  max_usd: z.number().positive().max(1_000_000).describe("Maximum amount in USD you are willing to pay for this task (max 1,000,000)"),
   currency: z.string().default("USD").describe("Currency code — currently only USD is supported"),
 }).strict().describe("Budget constraints for the task");
 
@@ -143,9 +143,9 @@ export const ProviderRegistrationSchema = z.object({
     .describe("Task types this provider supports (physical, digital, hybrid)"),
   regions: z.array(z.string().min(1).max(20)).min(1)
     .describe("Regions served (e.g. ['US', 'EU', '*'] where * = global)"),
-  min_budget_usd: z.number().min(0)
+  min_budget_usd: z.number().min(0).max(1_000_000)
     .describe("Minimum task budget this provider accepts (USD)"),
-  max_budget_usd: z.number().positive()
+  max_budget_usd: z.number().positive().max(1_000_000)
     .describe("Maximum task budget this provider accepts (USD)"),
   max_concurrent_tasks: z.number().int().min(1).max(10000).default(10)
     .describe("Maximum number of tasks this provider can handle concurrently"),
@@ -179,8 +179,8 @@ export const CallbackPayloadSchema = z.object({
     submitted_at: z.string().datetime(),
   })).max(20).optional()
     .describe("Proof-of-completion items"),
-  actual_cost_usd: z.number().min(0).optional()
-    .describe("Actual cost charged for the task"),
+  actual_cost_usd: z.number().min(0).max(1_000_000).optional()
+    .describe("Actual cost charged for the task (max 1,000,000)"),
   notes: z.string().max(2000).optional()
     .describe("Provider notes about the task"),
 }).strict().describe("Payload from providers reporting task completion or failure");
