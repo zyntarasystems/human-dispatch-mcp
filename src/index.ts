@@ -21,18 +21,41 @@ import { registerBackendsTool } from "./tools/backends.js";
 import { registerProviderTools } from "./tools/providers.js";
 import { requireBearerAuth } from "./services/security/http-auth.js";
 
-async function main(): Promise<void> {
-  // 1. Create MCP server
+interface ServerDeps {
+  taskStore: TaskStore;
+  router: Router;
+  adapterMap: Map<BackendId, BackendAdapter>;
+  adapters: BackendAdapter[];
+  registry: ProviderRegistry;
+}
+
+/**
+ * Build a fresh McpServer with all tools registered against the shared
+ * dependencies. For stdio transport this is called once at startup; for HTTP
+ * transport it is called per /mcp request so concurrent requests do not
+ * share an McpServer instance (which would accumulate transport listeners
+ * and risk cross-routing of responses).
+ */
+function buildMcpServer(deps: ServerDeps): McpServer {
   const server = new McpServer({
     name: SERVER_NAME,
     version: SERVER_VERSION,
   });
+  registerDispatchTool(server, deps.taskStore, deps.router);
+  registerStatusTool(server, deps.taskStore, deps.adapterMap);
+  registerCancelTool(server, deps.taskStore, deps.adapterMap);
+  registerListTool(server, deps.taskStore);
+  registerBackendsTool(server, deps.adapters);
+  registerProviderTools(server, deps.registry);
+  return server;
+}
 
-  // 2. Initialize provider registry
+async function main(): Promise<void> {
+  // Provider registry
   const registry = new ProviderRegistry();
   registry.seedFromEnv();
 
-  // 3. Initialize backend adapters
+  // Backend adapters
   const webhookAdapter = new WebhookProviderAdapter(registry);
   const adapters: BackendAdapter[] = [
     webhookAdapter,
@@ -43,27 +66,17 @@ async function main(): Promise<void> {
     adapters.map(a => [a.id, a]),
   );
 
-  // Log backend status
   for (const adapter of adapters) {
     const caps = adapter.getCapabilities();
     console.error(`[init] Backend ${caps.name}: configured=${caps.configured}`);
   }
 
-  // 4. Initialize TaskStore
   const taskStore = new TaskStore();
-
-  // 5. Initialize Router
   const router = new Router(adapters, taskStore);
 
-  // 6. Register all tools
-  registerDispatchTool(server, taskStore, router);
-  registerStatusTool(server, taskStore, adapterMap);
-  registerCancelTool(server, taskStore, adapterMap);
-  registerListTool(server, taskStore);
-  registerBackendsTool(server, adapters);
-  registerProviderTools(server, registry);
+  const deps: ServerDeps = { taskStore, router, adapterMap, adapters, registry };
 
-  // 7. Select transport and start
+  // Select transport and start
   const transport = process.env["TRANSPORT"] || "stdio";
 
   if (transport === "http") {
@@ -99,6 +112,10 @@ async function main(): Promise<void> {
 
     const mcpAuth = requireBearerAuth(authToken);
     app.post("/mcp", mcpAuth, async (req, res) => {
+      // Per-request McpServer: avoids the SDK pattern where re-connecting
+      // a shared server to a new transport accumulates listeners and can
+      // cross-route responses under concurrent requests (audit adv-014).
+      const server = buildMcpServer(deps);
       const httpTransport = new StreamableHTTPServerTransport({
         sessionIdGenerator: undefined,
         enableJsonResponse: true,
@@ -107,6 +124,7 @@ async function main(): Promise<void> {
       });
       res.on("close", () => {
         httpTransport.close().catch(console.error);
+        server.close().catch(console.error);
       });
       await server.connect(httpTransport);
       await httpTransport.handleRequest(req, res, req.body);
@@ -117,6 +135,7 @@ async function main(): Promise<void> {
       console.error(`[init] ${SERVER_NAME} v${SERVER_VERSION} listening on http://127.0.0.1:${port}/mcp (Streamable HTTP)`);
     });
   } else {
+    const server = buildMcpServer(deps);
     const stdioTransport = new StdioServerTransport();
     await server.connect(stdioTransport);
     console.error(`[init] ${SERVER_NAME} v${SERVER_VERSION} running on stdio`);
