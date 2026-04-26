@@ -76,7 +76,7 @@ DON'T USE WHEN:
         const adapter = adapters.get(task.backend_id);
         if (adapter) {
           try {
-            backendCancelled = await adapter.cancelTask(task.backend_task_id);
+            backendCancelled = await adapter.cancelTask(task.id, task.backend_task_id);
           } catch (err) {
             console.error(`[cancel] Backend cancel failed: ${err instanceof Error ? err.message : String(err)}`);
             backendCancelled = false;

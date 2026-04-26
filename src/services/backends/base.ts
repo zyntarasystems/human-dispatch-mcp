@@ -14,7 +14,7 @@ export abstract class BaseBackendAdapter implements BackendAdapter {
   abstract isConfigured(): boolean;
   abstract submitTask(task: Task): Promise<BackendSubmitResult>;
   abstract getStatus(backend_task_id: string): Promise<BackendStatusResult>;
-  abstract cancelTask(backend_task_id: string): Promise<boolean>;
+  abstract cancelTask(task_id: string, backend_task_id: string): Promise<boolean>;
 
   protected log(message: string): void {
     console.error(`[${this.id}] ${message}`);

@@ -3,10 +3,44 @@ import type { Request, Response } from "express";
 import { WEBHOOK_SIGNATURE_HEADER, WEBHOOK_PROVIDER_ID_HEADER } from "../../constants.js";
 import { CallbackPayloadSchema } from "../../schemas/task.js";
 import { TaskStatus, ProofSubmission } from "../../types.js";
+
+const TERMINAL_STATUSES: ReadonlySet<TaskStatus> = new Set([
+  TaskStatus.COMPLETED,
+  TaskStatus.FAILED,
+  TaskStatus.CANCELLED,
+]);
 import { TaskStore } from "../task-store.js";
 import { WebhookProviderAdapter } from "../backends/webhook-provider.js";
 import { ProviderRegistry } from "./registry.js";
 import { verifySignature } from "./webhook.js";
+
+// Per-provider token bucket. Burst up to BUCKET_CAPACITY callbacks, then
+// sustained REFILL_PER_SEC. Sized for one provider completing a fast batch
+// while still rejecting a runaway loop. Keys are validated provider UUIDs,
+// so the map is bounded by the registry cap (1000 from H3) — no separate
+// eviction path needed.
+const BUCKET_CAPACITY = 30;
+const REFILL_PER_SEC = 5;
+type Bucket = { tokens: number; lastRefill: number };
+const buckets = new Map<string, Bucket>();
+
+function consumeToken(providerId: string): boolean {
+  const now = Date.now();
+  let b = buckets.get(providerId);
+  if (!b) {
+    b = { tokens: BUCKET_CAPACITY, lastRefill: now };
+    buckets.set(providerId, b);
+  } else {
+    const elapsedSec = (now - b.lastRefill) / 1000;
+    if (elapsedSec > 0) {
+      b.tokens = Math.min(BUCKET_CAPACITY, b.tokens + elapsedSec * REFILL_PER_SEC);
+      b.lastRefill = now;
+    }
+  }
+  if (b.tokens < 1) return false;
+  b.tokens -= 1;
+  return true;
+}
 
 export function createCallbackRouter(
   taskStore: TaskStore,
@@ -15,12 +49,22 @@ export function createCallbackRouter(
 ): ExpressRouter {
   const router = ExpressRouter();
 
-  // Use raw body parsing on this route for HMAC verification
+  // Use raw body parsing on this route for HMAC verification.
+  // Wrap the async handler in a top-level try/catch so any unhandled rejection
+  // is converted into a 500 instead of becoming an UnhandledPromiseRejection
+  // (which on Node >=15 default-terminates the process).
   router.post(
     "/callbacks/task/:taskId",
     raw({ type: "application/json" }),
-    (req: Request, res: Response) => {
-      void handleCallback(req, res, taskStore, webhookAdapter, registry);
+    async (req: Request, res: Response) => {
+      try {
+        await handleCallback(req, res, taskStore, webhookAdapter, registry);
+      } catch (err) {
+        console.error(`[callback] Unhandled error: ${err instanceof Error ? err.message : String(err)}`);
+        if (!res.headersSent) {
+          res.status(500).json({ error: "Internal server error" });
+        }
+      }
     },
   );
 
@@ -54,8 +98,27 @@ async function handleCallback(
     return;
   }
 
-  // Verify HMAC signature
-  const rawBody = Buffer.isBuffer(req.body) ? req.body.toString("utf-8") : String(req.body);
+  // Per-provider rate limit. Applied after the registry lookup so the bucket
+  // map stays bounded by the registry cap rather than every claimed-but-bogus
+  // provider id. Verification (HMAC) happens after this so a flooding caller
+  // with a valid provider id can't burn CPU on signature work either.
+  if (!consumeToken(providerId)) {
+    res.status(429).json({ error: "Too many callback requests" });
+    return;
+  }
+
+  // Verify HMAC signature. The raw body Buffer is load-bearing — the
+  // signature was computed over the bytes the provider POSTed, not over a
+  // re-serialised JSON string. If the body has already been parsed (e.g.
+  // express.json() was mounted before this router) we cannot recover the
+  // exact bytes and verification would be unsafe. Fail loudly instead of
+  // falling back to String(req.body), which would silently produce 401s.
+  if (!Buffer.isBuffer(req.body)) {
+    console.error("[callback] Raw body missing — express.json() likely mounted before callback router");
+    res.status(500).json({ error: "Server misconfiguration" });
+    return;
+  }
+  const rawBody = req.body.toString("utf-8");
   if (!verifySignature(rawBody, signature, provider.webhook_secret)) {
     res.status(401).json({ error: "Invalid signature" });
     return;
@@ -80,6 +143,20 @@ async function handleCallback(
 
   if (!task.backend_task_id) {
     res.status(400).json({ error: "Task has no backend assignment" });
+    return;
+  }
+
+  // Reject callbacks for tasks already in a terminal state. This blocks
+  // replay attacks (re-sending a captured callback inflates provider stats
+  // and overwrites proof/cost) and prevents a provider from flipping a
+  // user-cancelled task back to completed. Runs BEFORE the ownership check
+  // because the per-task ownership map is dropped when a task hits terminal
+  // state — otherwise a legitimate late callback would surface as 403.
+  if (TERMINAL_STATUSES.has(task.status)) {
+    res.status(409).json({
+      error: "Task already in terminal state",
+      current_status: task.status,
+    });
     return;
   }
 

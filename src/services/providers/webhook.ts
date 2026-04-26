@@ -6,6 +6,7 @@ import {
   WebhookProvider,
   Task,
 } from "../../types.js";
+import { safeFetch, sanitizeErrorMessage } from "../security/url-guard.js";
 
 export function signPayload(body: string, secret: string): string {
   return createHmac("sha256", secret).update(body).digest("hex");
@@ -21,8 +22,18 @@ export function verifySignature(body: string, signature: string, secret: string)
   }
 }
 
+/**
+ * Outbound webhook payload version. Increment on any breaking change to
+ * `task.new`, `task.cancel`, or `provider.verify` body shapes. Providers
+ * SHOULD pin their parser to a known version. Inbound callbacks may
+ * include the same field; today the server treats it as informational.
+ */
+const PAYLOAD_VERSION = 1;
+
 function buildTaskPayload(task: Task): Record<string, unknown> {
   return {
+    payload_version: PAYLOAD_VERSION,
+    event: "task.new" satisfies WebhookEvent,
     task_id: task.id,
     description: task.request.description,
     category: task.request.category,
@@ -48,7 +59,7 @@ export async function dispatchToProvider(
   const timeout = setTimeout(() => controller.abort(), WEBHOOK_TIMEOUT_MS);
 
   try {
-    const response = await fetch(provider.webhook_url, {
+    const response = await safeFetch(provider.webhook_url, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -72,7 +83,7 @@ export async function dispatchToProvider(
       reason: result.reason,
     };
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
+    const message = sanitizeErrorMessage(err);
     console.error(`[webhook] Dispatch to ${provider.name} failed: ${message}`);
     return { accepted: false, reason: message };
   } finally {
@@ -85,14 +96,19 @@ export async function dispatchCancelToProvider(
   taskId: string,
   externalId: string,
 ): Promise<boolean> {
-  const body = JSON.stringify({ task_id: taskId, external_id: externalId });
+  const body = JSON.stringify({
+    payload_version: PAYLOAD_VERSION,
+    event: "task.cancel" satisfies WebhookEvent,
+    task_id: taskId,
+    external_id: externalId,
+  });
   const signature = `sha256=${signPayload(body, provider.webhook_secret)}`;
 
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), WEBHOOK_TIMEOUT_MS);
 
   try {
-    const response = await fetch(provider.webhook_url, {
+    const response = await safeFetch(provider.webhook_url, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -106,7 +122,7 @@ export async function dispatchCancelToProvider(
 
     return response.ok;
   } catch (err) {
-    console.error(`[webhook] Cancel dispatch to ${provider.name} failed: ${err instanceof Error ? err.message : String(err)}`);
+    console.error(`[webhook] Cancel dispatch to ${provider.name} failed: ${sanitizeErrorMessage(err)}`);
     return false;
   } finally {
     clearTimeout(timeout);
@@ -114,14 +130,18 @@ export async function dispatchCancelToProvider(
 }
 
 export async function verifyProviderEndpoint(provider: WebhookProvider): Promise<boolean> {
-  const body = JSON.stringify({ event: "provider.verify", provider_id: provider.id });
+  const body = JSON.stringify({
+    payload_version: PAYLOAD_VERSION,
+    event: "provider.verify" satisfies WebhookEvent,
+    provider_id: provider.id,
+  });
   const signature = `sha256=${signPayload(body, provider.webhook_secret)}`;
 
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), WEBHOOK_TIMEOUT_MS);
 
   try {
-    const response = await fetch(provider.webhook_url, {
+    const response = await safeFetch(provider.webhook_url, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -132,7 +152,19 @@ export async function verifyProviderEndpoint(provider: WebhookProvider): Promise
       signal: controller.signal,
     });
 
-    return response.ok;
+    if (!response.ok) return false;
+
+    // A 200 alone is not enough — any random HTTPS endpoint can return 200,
+    // so we'd be confirming "is this URL reachable" rather than "is this URL
+    // a willing provider for this id with this secret". Require the body to
+    // be JSON containing { verified: true }; the provider has to read our
+    // signed payload and explicitly opt in.
+    try {
+      const result = await response.json() as { verified?: unknown };
+      return result?.verified === true;
+    } catch {
+      return false;
+    }
   } catch {
     return false;
   } finally {

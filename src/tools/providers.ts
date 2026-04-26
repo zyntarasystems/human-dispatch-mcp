@@ -6,7 +6,7 @@ import {
 } from "../schemas/task.js";
 import { ProviderRegistry } from "../services/providers/registry.js";
 import { verifyProviderEndpoint } from "../services/providers/webhook.js";
-import { TaskCategory, TaskType, WebhookProvider } from "../types.js";
+import { WebhookProvider } from "../types.js";
 
 function sanitizeProvider(provider: WebhookProvider): Omit<WebhookProvider, "webhook_secret"> & { webhook_secret?: undefined } {
   const { webhook_secret: _, ...safe } = provider;
@@ -50,8 +50,8 @@ Expected response: { "accepted": true, "external_id": "your-id" } or { "accepted
         name: parsed.name,
         webhook_url: parsed.webhook_url,
         webhook_secret: parsed.webhook_secret,
-        categories: parsed.categories as TaskCategory[],
-        task_types: parsed.task_types as TaskType[],
+        categories: parsed.categories,
+        task_types: parsed.task_types,
         regions: parsed.regions,
         min_budget_usd: parsed.min_budget_usd,
         max_budget_usd: parsed.max_budget_usd,
@@ -97,7 +97,7 @@ PARAMETERS:
       const filters = ProviderFilterSchema.parse(params);
 
       const providers = registry.listProviders({
-        category: filters.category as TaskCategory | undefined,
+        category: filters.category,
         region: filters.region,
         active_only: filters.active_only,
       });

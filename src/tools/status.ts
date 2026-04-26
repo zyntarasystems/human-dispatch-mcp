@@ -64,7 +64,10 @@ DON'T USE WHEN:
             if (backendStatus.cost_usd !== undefined) {
               updates["cost_usd"] = backendStatus.cost_usd;
             }
-            if (backendStatus.status === TaskStatus.COMPLETED) {
+            // Preserve the original completed_at — the callback handler
+            // already stamps it on the terminal transition. Re-stamping here
+            // on every poll would drift the recorded completion time forward.
+            if (backendStatus.status === TaskStatus.COMPLETED && !task.completed_at) {
               updates["completed_at"] = new Date().toISOString();
             }
 
