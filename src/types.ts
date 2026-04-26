@@ -78,6 +78,7 @@ export interface TaskRequest {
   fallback_chain?: BackendId[];
   callback_url?: string | null;
   metadata?: Record<string, string>;
+  idempotency_key?: string;
 }
 
 export interface ProofSubmission {

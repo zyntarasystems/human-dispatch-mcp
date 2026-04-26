@@ -15,9 +15,18 @@ const TERMINAL_STATUSES: ReadonlySet<TaskStatus> = new Set([
 
 export class TaskStore {
   private static readonly MAX_TASKS = 10_000;
+  private static readonly IDEMPOTENCY_WINDOW_MS = 60 * 60 * 1000; // 1 hour
   private readonly tasks = new Map<string, Task>();
 
   createTask(request: TaskRequest): Task {
+    // Idempotency: if a task with the same client-supplied key was created
+    // within the dedup window, return it instead of creating a duplicate.
+    // Lookup is O(n) over the task map; with the 10k cap this is bounded.
+    if (request.idempotency_key) {
+      const existing = this.findByIdempotencyKey(request.idempotency_key);
+      if (existing) return existing;
+    }
+
     if (this.tasks.size >= TaskStore.MAX_TASKS) {
       this.evictOldestTerminal();
     }
@@ -112,6 +121,15 @@ export class TaskStore {
       }
     }
     return result;
+  }
+
+  private findByIdempotencyKey(key: string): Task | undefined {
+    const cutoff = Date.now() - TaskStore.IDEMPOTENCY_WINDOW_MS;
+    for (const task of this.tasks.values()) {
+      if (task.request.idempotency_key !== key) continue;
+      if (Date.parse(task.created_at) >= cutoff) return task;
+    }
+    return undefined;
   }
 
   private evictOldestTerminal(): void {

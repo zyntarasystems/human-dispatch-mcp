@@ -89,6 +89,8 @@ export const TaskRequestSchema = z.object({
     message: "metadata cannot have more than 20 keys",
   }).optional()
     .describe("Arbitrary key-value pairs for your own tracking (e.g. {'order_id': '12345', 'agent_name': 'my-bot'})"),
+  idempotency_key: z.string().min(1).max(128).optional()
+    .describe("Optional client-supplied key to dedupe retried submissions. If a task with the same key was created within the last hour, the existing task is returned instead of a duplicate. Example: 'order-12345-attempt-1'"),
 }).strict().describe("Complete task submission — everything the system needs to route and track a human task");
 
 // ─── Query/Filter Schemas ──────────────────────────────────
