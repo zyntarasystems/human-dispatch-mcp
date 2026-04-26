@@ -21,9 +21,16 @@ interface ProviderFilters {
 }
 
 export class ProviderRegistry {
+  private static readonly MAX_PROVIDERS = 1000;
   private readonly providers = new Map<string, WebhookProvider>();
 
   registerProvider(params: RegisterProviderParams): WebhookProvider {
+    if (this.providers.size >= ProviderRegistry.MAX_PROVIDERS) {
+      throw new Error(
+        `Provider registry capacity exceeded (${ProviderRegistry.MAX_PROVIDERS}). ` +
+        "Remove unused providers before registering new ones.",
+      );
+    }
     const provider: WebhookProvider = {
       id: randomUUID(),
       name: params.name,
