@@ -6,6 +6,7 @@ import {
   TaskType,
 } from "../types.js";
 import { TaskStore } from "./task-store.js";
+import { sanitizeErrorMessage } from "./security/url-guard.js";
 
 export class Router {
   private readonly adapters: Map<BackendId, BackendAdapter>;
@@ -45,7 +46,7 @@ export class Router {
         console.error(`[router] Task ${task.id} routed to ${backendId} (backend_task_id: ${result.backend_task_id})`);
         return task;
       } catch (err) {
-        const errorMessage = err instanceof Error ? err.message : String(err);
+        const errorMessage = sanitizeErrorMessage(err);
         console.error(`[router] Backend ${backendId} failed for task ${task.id}: ${errorMessage}`);
 
         task = this.taskStore.updateTask(task.id, {

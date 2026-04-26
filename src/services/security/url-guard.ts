@@ -170,3 +170,20 @@ export async function safeFetch(rawUrl: string, init?: RequestInit): Promise<Res
   await assertResolvedPublicHostname(u.hostname);
   return fetch(rawUrl, init);
 }
+
+/**
+ * Strip host / IP / sys-error-code details from an error message before
+ * persisting it to attempts[].error or returning it to a tool caller.
+ * Defense-in-depth: prevents fetch / DNS / SSRF errors from leaking the
+ * provider's hostname or IP back to whoever queries task status.
+ */
+export function sanitizeErrorMessage(err: unknown): string {
+  const raw = err instanceof Error ? err.message : String(err);
+  let msg = raw.replace(
+    /\b(ENOTFOUND|ECONNREFUSED|ECONNRESET|EHOSTUNREACH|EHOSTDOWN|ETIMEDOUT|EPROTO|EAI_AGAIN|ECERTHOSTNAMEMISMATCH|ENETUNREACH)\b[\s:]*\S+/g,
+    "$1",
+  );
+  msg = msg.replace(/\b(?:\d{1,3}\.){3}\d{1,3}(?::\d+)?\b/g, "[redacted-ip]");
+  msg = msg.replace(/\[[0-9a-fA-F:]+\](?::\d+)?/g, "[redacted-ip]");
+  return msg.slice(0, 300);
+}

@@ -6,7 +6,7 @@ import {
   WebhookProvider,
   Task,
 } from "../../types.js";
-import { safeFetch } from "../security/url-guard.js";
+import { safeFetch, sanitizeErrorMessage } from "../security/url-guard.js";
 
 export function signPayload(body: string, secret: string): string {
   return createHmac("sha256", secret).update(body).digest("hex");
@@ -73,7 +73,7 @@ export async function dispatchToProvider(
       reason: result.reason,
     };
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
+    const message = sanitizeErrorMessage(err);
     console.error(`[webhook] Dispatch to ${provider.name} failed: ${message}`);
     return { accepted: false, reason: message };
   } finally {
@@ -107,7 +107,7 @@ export async function dispatchCancelToProvider(
 
     return response.ok;
   } catch (err) {
-    console.error(`[webhook] Cancel dispatch to ${provider.name} failed: ${err instanceof Error ? err.message : String(err)}`);
+    console.error(`[webhook] Cancel dispatch to ${provider.name} failed: ${sanitizeErrorMessage(err)}`);
     return false;
   } finally {
     clearTimeout(timeout);
