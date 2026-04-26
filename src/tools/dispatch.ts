@@ -2,7 +2,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { TaskRequestSchema } from "../schemas/task.js";
 import { TaskStore } from "../services/task-store.js";
 import { Router } from "../services/router.js";
-import { TaskRequest, TaskStatus } from "../types.js";
+import { TaskStatus } from "../types.js";
 
 export function registerDispatchTool(
   server: McpServer,
@@ -44,9 +44,7 @@ DON'T USE WHEN:
 - No providers are registered (use human_register_provider first, or rely on manual fallback)`,
     TaskRequestSchema.shape,
     async (params) => {
-      const parsed = TaskRequestSchema.parse(params);
-      // Zod infers string literal unions; cast to TaskRequest since values are identical
-      const request = parsed as unknown as TaskRequest;
+      const request = TaskRequestSchema.parse(params);
       const task = taskStore.createTask(request);
       const routed = await router.route(task);
 

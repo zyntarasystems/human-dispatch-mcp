@@ -1,54 +1,42 @@
 import { z } from "zod";
+import { isPublicHttpsUrl } from "../services/security/url-guard.js";
+import {
+  BackendId,
+  ProofType,
+  QualitySLA,
+  TaskCategory,
+  TaskStatus,
+  TaskType,
+} from "../types.js";
 
 // ─── Enum Schemas ──────────────────────────────────────────
+//
+// Derived from the TS enums in ../types.ts via z.nativeEnum so the value
+// list lives in exactly one place. Adding a new enum member requires
+// editing only types.ts; the schema picks it up automatically.
 
-export const TaskStatusSchema = z.enum([
-  "pending",
-  "routed",
-  "assigned",
-  "in_progress",
-  "awaiting_review",
-  "completed",
-  "failed",
-  "cancelled",
-]).describe("Current status of the task in its lifecycle");
+export const TaskStatusSchema = z.nativeEnum(TaskStatus)
+  .describe("Current status of the task in its lifecycle");
 
-export const TaskTypeSchema = z.enum([
-  "physical",
-  "digital",
-  "hybrid",
-]).describe("Whether the task requires physical presence, is digital-only, or both");
+export const TaskTypeSchema = z.nativeEnum(TaskType)
+  .describe("Whether the task requires physical presence, is digital-only, or both");
 
-export const TaskCategorySchema = z.enum([
-  "errand",
-  "photo_video",
-  "data_collection",
-  "verification",
-  "delivery",
-  "digital_micro",
-  "in_person",
-  "custom",
-]).describe("Category of the task — determines which backends are best suited");
+export const TaskCategorySchema = z.nativeEnum(TaskCategory)
+  .describe("Category of the task — determines which backends are best suited");
 
-export const ProofTypeSchema = z.enum([
-  "photo",
-  "video",
-  "gps_checkin",
-  "text_report",
-  "receipt",
-  "signature",
-]).describe("Type of proof-of-completion required from the human worker");
+export const ProofTypeSchema = z.nativeEnum(ProofType)
+  .describe("Type of proof-of-completion required from the human worker");
 
-export const QualitySLASchema = z.enum([
-  "low",
-  "medium",
-  "high",
-]).describe("Quality/speed tradeoff: low=fastest/cheapest, medium=default, high=verified workers with multi-proof");
+export const QualitySLASchema = z.nativeEnum(QualitySLA)
+  .describe("Quality/speed tradeoff: low=fastest/cheapest, medium=default, high=verified workers with multi-proof");
 
-export const BackendIdSchema = z.enum([
-  "webhook_provider",
-  "manual",
-]).describe("Identifier for a backend task-routing service");
+export const BackendIdSchema = z.nativeEnum(BackendId)
+  .describe("Identifier for a backend task-routing service");
+
+// ─── Shared URL Refinement ─────────────────────────────────
+
+export const httpsPublicUrl = z.string().url()
+  .refine(isPublicHttpsUrl, { message: "Must be an HTTPS URL pointing to a public host" });
 
 // ─── Composite Schemas ─────────────────────────────────────
 
@@ -56,12 +44,12 @@ export const TaskLocationSchema = z.object({
   address: z.string().describe("Human-readable street address where the task should be performed").optional(),
   latitude: z.number().min(-90).max(90).describe("Latitude coordinate of task location").optional(),
   longitude: z.number().min(-180).max(180).describe("Longitude coordinate of task location").optional(),
-  radius_km: z.number().positive().describe("Acceptable radius in kilometers from the specified point").optional(),
+  radius_km: z.number().positive().max(20_000).describe("Acceptable radius in kilometers from the specified point (max 20000)").optional(),
   region: z.string().describe("City, state, or country as a fallback when coordinates are not available").optional(),
 }).strict().describe("Location where the task should be performed — required for physical tasks");
 
 export const BudgetSchema = z.object({
-  max_usd: z.number().positive().describe("Maximum amount in USD you are willing to pay for this task"),
+  max_usd: z.number().positive().max(1_000_000).describe("Maximum amount in USD you are willing to pay for this task (max 1,000,000)"),
   currency: z.string().default("USD").describe("Currency code — currently only USD is supported"),
 }).strict().describe("Budget constraints for the task");
 
@@ -91,17 +79,7 @@ export const TaskRequestSchema = z.object({
     .describe("Preferred backend services to route this task to, tried in order. If omitted, the router picks the best backend automatically."),
   fallback_chain: z.array(BackendIdSchema).optional()
     .describe("Ordered list of fallback backends if the preferred ones fail. The 'manual' backend is always available as a last resort."),
-  callback_url: z.string().url()
-    .refine((url) => {
-      try {
-        const { hostname, protocol } = new URL(url);
-        if (protocol !== "https:") return false;
-        if (/^(localhost|127\.|10\.|192\.168\.|172\.(1[6-9]|2[0-9]|3[01])\.|169\.254\.|::1|fc00:|fe80:)/i.test(hostname)) return false;
-        return true;
-      } catch {
-        return false;
-      }
-    }, { message: "callback_url must be an HTTPS URL pointing to a public host" })
+  callback_url: httpsPublicUrl
     .nullable().optional()
     .describe("Webhook URL to receive status update notifications. Set to null or omit if you will poll for status instead."),
   metadata: z.record(
@@ -111,6 +89,8 @@ export const TaskRequestSchema = z.object({
     message: "metadata cannot have more than 20 keys",
   }).optional()
     .describe("Arbitrary key-value pairs for your own tracking (e.g. {'order_id': '12345', 'agent_name': 'my-bot'})"),
+  idempotency_key: z.string().min(1).max(128).optional()
+    .describe("Optional client-supplied key to dedupe retried submissions. If a task with the same key was created within the last hour, the existing task is returned instead of a duplicate. Example: 'order-12345-attempt-1'"),
 }).strict().describe("Complete task submission — everything the system needs to route and track a human task");
 
 // ─── Query/Filter Schemas ──────────────────────────────────
@@ -134,18 +114,6 @@ export const TaskFilterSchema = z.object({
 
 // ─── Provider Schemas ─────────────────────────────────────
 
-const httpsPublicUrl = z.string().url()
-  .refine((url) => {
-    try {
-      const { hostname, protocol } = new URL(url);
-      if (protocol !== "https:") return false;
-      if (/^(localhost|127\.|10\.|192\.168\.|172\.(1[6-9]|2[0-9]|3[01])\.|169\.254\.|::1|fc00:|fe80:)/i.test(hostname)) return false;
-      return true;
-    } catch {
-      return false;
-    }
-  }, { message: "Must be an HTTPS URL pointing to a public host" });
-
 export const ProviderRegistrationSchema = z.object({
   name: z.string().min(1).max(200)
     .describe("Human-readable provider name (e.g. 'Smith & Associates Law')"),
@@ -159,9 +127,9 @@ export const ProviderRegistrationSchema = z.object({
     .describe("Task types this provider supports (physical, digital, hybrid)"),
   regions: z.array(z.string().min(1).max(20)).min(1)
     .describe("Regions served (e.g. ['US', 'EU', '*'] where * = global)"),
-  min_budget_usd: z.number().min(0)
+  min_budget_usd: z.number().min(0).max(1_000_000)
     .describe("Minimum task budget this provider accepts (USD)"),
-  max_budget_usd: z.number().positive()
+  max_budget_usd: z.number().positive().max(1_000_000)
     .describe("Maximum task budget this provider accepts (USD)"),
   max_concurrent_tasks: z.number().int().min(1).max(10000).default(10)
     .describe("Maximum number of tasks this provider can handle concurrently"),
@@ -190,13 +158,13 @@ export const CallbackPayloadSchema = z.object({
     .describe("The deliverable/result data"),
   proof: z.array(z.object({
     type: ProofTypeSchema,
-    url: z.string().url().optional(),
-    text: z.string().optional(),
+    url: httpsPublicUrl.optional(),
+    text: z.string().max(2000).optional(),
     submitted_at: z.string().datetime(),
-  })).optional()
+  })).max(20).optional()
     .describe("Proof-of-completion items"),
-  actual_cost_usd: z.number().min(0).optional()
-    .describe("Actual cost charged for the task"),
+  actual_cost_usd: z.number().min(0).max(1_000_000).optional()
+    .describe("Actual cost charged for the task (max 1,000,000)"),
   notes: z.string().max(2000).optional()
     .describe("Provider notes about the task"),
 }).strict().describe("Payload from providers reporting task completion or failure");

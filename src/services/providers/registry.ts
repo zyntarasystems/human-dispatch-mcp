@@ -1,21 +1,32 @@
 import { randomUUID } from "node:crypto";
+import { z } from "zod";
 import {
   Task,
   TaskCategory,
-  TaskType,
   WebhookProvider,
 } from "../../types.js";
+import { ProviderRegistrationSchema } from "../../schemas/task.js";
 
-interface RegisterProviderParams {
-  name: string;
-  webhook_url: string;
-  webhook_secret: string;
-  categories: TaskCategory[];
-  task_types: TaskType[];
-  regions: string[];
-  min_budget_usd: number;
-  max_budget_usd: number;
-  max_concurrent_tasks: number;
+type RegisterProviderParams = z.infer<typeof ProviderRegistrationSchema>;
+
+function sanitizeForLog(value: unknown): string {
+  return String(value).replace(/[\r\n\t]/g, " ").slice(0, 200);
+}
+
+// Match a task region against a provider's region list.
+// "*" wildcards match anything. Comparisons are case-insensitive, and a
+// broader provider region (e.g. "US") matches a more specific task region
+// (e.g. "US-CA") via hyphen-bounded prefix match. The reverse does not match:
+// a "US-CA"-only provider does not handle a generic "US" task.
+function regionMatches(providerRegions: string[], taskRegion: string): boolean {
+  const task = taskRegion.toLowerCase();
+  for (const r of providerRegions) {
+    if (r === "*") return true;
+    const provider = r.toLowerCase();
+    if (provider === task) return true;
+    if (task.startsWith(provider + "-")) return true;
+  }
+  return false;
 }
 
 interface ProviderFilters {
@@ -25,9 +36,16 @@ interface ProviderFilters {
 }
 
 export class ProviderRegistry {
+  private static readonly MAX_PROVIDERS = 1000;
   private readonly providers = new Map<string, WebhookProvider>();
 
   registerProvider(params: RegisterProviderParams): WebhookProvider {
+    if (this.providers.size >= ProviderRegistry.MAX_PROVIDERS) {
+      throw new Error(
+        `Provider registry capacity exceeded (${ProviderRegistry.MAX_PROVIDERS}). ` +
+        "Remove unused providers before registering new ones.",
+      );
+    }
     const provider: WebhookProvider = {
       id: randomUUID(),
       name: params.name,
@@ -52,7 +70,7 @@ export class ProviderRegistry {
     };
 
     this.providers.set(provider.id, provider);
-    console.error(`[registry] Provider registered: ${provider.name} (${provider.id})`);
+    console.error(`[registry] Provider registered: ${sanitizeForLog(provider.name)} (${provider.id})`);
     return provider;
   }
 
@@ -82,9 +100,7 @@ export class ProviderRegistry {
 
     if (filters?.region) {
       const region = filters.region;
-      result = result.filter(p =>
-        p.regions.includes("*") || p.regions.includes(region),
-      );
+      result = result.filter(p => regionMatches(p.regions, region));
     }
 
     return result;
@@ -102,12 +118,10 @@ export class ProviderRegistry {
         if (req.budget.max_usd < p.min_budget_usd) return false;
         if (req.budget.max_usd > p.max_budget_usd) return false;
 
-        // Region matching: provider must serve the task's region or be global
-        if (req.location?.region) {
-          const taskRegion = req.location.region;
-          if (!p.regions.includes("*") && !p.regions.includes(taskRegion)) {
-            return false;
-          }
+        // Region matching: provider must serve the task's region or be global.
+        // See regionMatches() for the case-insensitive prefix semantics.
+        if (req.location?.region && !regionMatches(p.regions, req.location.region)) {
+          return false;
         }
 
         return true;
@@ -165,59 +179,33 @@ export class ProviderRegistry {
     const raw = process.env["PROVIDERS_CONFIG"];
     if (!raw) return;
 
+    let parsed: unknown;
     try {
-      const parsed = JSON.parse(raw) as unknown;
-      if (!Array.isArray(parsed)) {
-        console.error("[registry] PROVIDERS_CONFIG must be a JSON array");
-        return;
-      }
-
-      let seeded = 0;
-      for (const entry of parsed) {
-        const config = entry as Record<string, unknown>;
-
-        // Validate required fields and types
-        if (
-          typeof config["name"] !== "string" || !config["name"] ||
-          typeof config["webhook_url"] !== "string" || !config["webhook_url"] ||
-          typeof config["webhook_secret"] !== "string" || config["webhook_secret"].length < 32 ||
-          !Array.isArray(config["categories"]) || config["categories"].length === 0 ||
-          !Array.isArray(config["task_types"]) || config["task_types"].length === 0 ||
-          !Array.isArray(config["regions"]) || config["regions"].length === 0
-        ) {
-          console.error(`[registry] Skipping invalid provider config: ${JSON.stringify(config["name"] ?? "unknown")}`);
-          continue;
-        }
-
-        // Validate webhook_url is HTTPS
-        try {
-          const url = new URL(config["webhook_url"] as string);
-          if (url.protocol !== "https:") {
-            console.error(`[registry] Skipping provider "${config["name"]}": webhook_url must be HTTPS`);
-            continue;
-          }
-        } catch {
-          console.error(`[registry] Skipping provider "${config["name"]}": invalid webhook_url`);
-          continue;
-        }
-
-        this.registerProvider({
-          name: config["name"] as string,
-          webhook_url: config["webhook_url"] as string,
-          webhook_secret: config["webhook_secret"] as string,
-          categories: config["categories"] as TaskCategory[],
-          task_types: config["task_types"] as TaskType[],
-          regions: config["regions"] as string[],
-          min_budget_usd: typeof config["min_budget_usd"] === "number" ? config["min_budget_usd"] : 0,
-          max_budget_usd: typeof config["max_budget_usd"] === "number" ? config["max_budget_usd"] : 10000,
-          max_concurrent_tasks: typeof config["max_concurrent_tasks"] === "number" ? config["max_concurrent_tasks"] : 10,
-        });
-        seeded++;
-      }
-
-      console.error(`[registry] Seeded ${seeded} provider(s) from PROVIDERS_CONFIG`);
+      parsed = JSON.parse(raw);
     } catch (err) {
-      console.error(`[registry] Failed to parse PROVIDERS_CONFIG: ${err instanceof Error ? err.message : String(err)}`);
+      console.error(`[registry] Failed to parse PROVIDERS_CONFIG JSON: ${err instanceof Error ? err.message : String(err)}`);
+      return;
     }
+    if (!Array.isArray(parsed)) {
+      console.error("[registry] PROVIDERS_CONFIG must be a JSON array");
+      return;
+    }
+
+    let seeded = 0;
+    for (const entry of parsed) {
+      const result = ProviderRegistrationSchema.safeParse(entry);
+      if (!result.success) {
+        const name = (entry as { name?: unknown } | null)?.name;
+        const issues = result.error.errors
+          .map(e => `${e.path.join(".") || "<root>"}: ${e.message}`)
+          .join("; ");
+        console.error(`[registry] Skipping invalid provider config "${sanitizeForLog(name ?? "unknown")}": ${sanitizeForLog(issues)}`);
+        continue;
+      }
+      this.registerProvider(result.data);
+      seeded++;
+    }
+
+    console.error(`[registry] Seeded ${seeded} provider(s) from PROVIDERS_CONFIG`);
   }
 }

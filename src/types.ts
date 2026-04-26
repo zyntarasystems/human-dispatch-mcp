@@ -3,9 +3,6 @@
 export enum TaskStatus {
   PENDING = "pending",
   ROUTED = "routed",
-  ASSIGNED = "assigned",
-  IN_PROGRESS = "in_progress",
-  AWAITING_REVIEW = "awaiting_review",
   COMPLETED = "completed",
   FAILED = "failed",
   CANCELLED = "cancelled",
@@ -81,6 +78,7 @@ export interface TaskRequest {
   fallback_chain?: BackendId[];
   callback_url?: string | null;
   metadata?: Record<string, string>;
+  idempotency_key?: string;
 }
 
 export interface ProofSubmission {
@@ -147,7 +145,12 @@ export interface BackendAdapter {
   isConfigured(): boolean;
   submitTask(task: Task): Promise<BackendSubmitResult>;
   getStatus(backend_task_id: string): Promise<BackendStatusResult>;
-  cancelTask(backend_task_id: string): Promise<boolean>;
+  /**
+   * Cancel a task. Receives both the platform task UUID and the
+   * backend-assigned external id so adapters can correlate against the
+   * original `task.new` payload.
+   */
+  cancelTask(task_id: string, backend_task_id: string): Promise<boolean>;
 }
 
 // ─── Webhook Provider Types ───────────────────────────────
