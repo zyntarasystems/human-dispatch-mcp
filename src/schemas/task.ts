@@ -174,10 +174,10 @@ export const CallbackPayloadSchema = z.object({
     .describe("The deliverable/result data"),
   proof: z.array(z.object({
     type: ProofTypeSchema,
-    url: z.string().url().optional(),
-    text: z.string().optional(),
+    url: httpsPublicUrl.optional(),
+    text: z.string().max(2000).optional(),
     submitted_at: z.string().datetime(),
-  })).optional()
+  })).max(20).optional()
     .describe("Proof-of-completion items"),
   actual_cost_usd: z.number().min(0).optional()
     .describe("Actual cost charged for the task"),
