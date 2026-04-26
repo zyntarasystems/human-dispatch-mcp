@@ -22,8 +22,18 @@ export function verifySignature(body: string, signature: string, secret: string)
   }
 }
 
+/**
+ * Outbound webhook payload version. Increment on any breaking change to
+ * `task.new`, `task.cancel`, or `provider.verify` body shapes. Providers
+ * SHOULD pin their parser to a known version. Inbound callbacks may
+ * include the same field; today the server treats it as informational.
+ */
+const PAYLOAD_VERSION = 1;
+
 function buildTaskPayload(task: Task): Record<string, unknown> {
   return {
+    payload_version: PAYLOAD_VERSION,
+    event: "task.new" satisfies WebhookEvent,
     task_id: task.id,
     description: task.request.description,
     category: task.request.category,
@@ -86,7 +96,12 @@ export async function dispatchCancelToProvider(
   taskId: string,
   externalId: string,
 ): Promise<boolean> {
-  const body = JSON.stringify({ task_id: taskId, external_id: externalId });
+  const body = JSON.stringify({
+    payload_version: PAYLOAD_VERSION,
+    event: "task.cancel" satisfies WebhookEvent,
+    task_id: taskId,
+    external_id: externalId,
+  });
   const signature = `sha256=${signPayload(body, provider.webhook_secret)}`;
 
   const controller = new AbortController();
@@ -115,7 +130,11 @@ export async function dispatchCancelToProvider(
 }
 
 export async function verifyProviderEndpoint(provider: WebhookProvider): Promise<boolean> {
-  const body = JSON.stringify({ event: "provider.verify", provider_id: provider.id });
+  const body = JSON.stringify({
+    payload_version: PAYLOAD_VERSION,
+    event: "provider.verify" satisfies WebhookEvent,
+    provider_id: provider.id,
+  });
   const signature = `sha256=${signPayload(body, provider.webhook_secret)}`;
 
   const controller = new AbortController();
