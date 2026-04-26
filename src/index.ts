@@ -19,6 +19,7 @@ import { registerCancelTool } from "./tools/cancel.js";
 import { registerListTool } from "./tools/list.js";
 import { registerBackendsTool } from "./tools/backends.js";
 import { registerProviderTools } from "./tools/providers.js";
+import { requireBearerAuth } from "./services/security/http-auth.js";
 
 async function main(): Promise<void> {
   // 1. Create MCP server
@@ -66,18 +67,43 @@ async function main(): Promise<void> {
   const transport = process.env["TRANSPORT"] || "stdio";
 
   if (transport === "http") {
-    const port = parseInt(process.env["PORT"] || String(DEFAULT_PORT), 10);
+    const portRaw = process.env["PORT"];
+    const portParsed = portRaw ? parseInt(portRaw, 10) : DEFAULT_PORT;
+    const port = Number.isFinite(portParsed) && portParsed > 0 && portParsed <= 65535
+      ? portParsed
+      : DEFAULT_PORT;
+    if (port !== portParsed) {
+      console.error(`[init] Invalid PORT='${portRaw}', falling back to ${DEFAULT_PORT}`);
+    }
+
+    const authToken = process.env["MCP_AUTH_TOKEN"];
+    if (!authToken || authToken.length < 32) {
+      console.error(
+        "[init] MCP_AUTH_TOKEN must be set to a >=32-char secret when TRANSPORT=http. " +
+        "Generate one with: node -e 'console.log(require(\"crypto\").randomBytes(32).toString(\"hex\"))'. " +
+        "Refusing to start.",
+      );
+      process.exit(1);
+    }
+
+    const allowedHosts = [`127.0.0.1:${port}`, `localhost:${port}`];
+
     const app = express();
 
-    // Mount callback router BEFORE express.json() so it can use raw body for HMAC
+    // Mount callback router BEFORE express.json() so it can use raw body for HMAC.
+    // Order is load-bearing: any body-parsing middleware before this consumes the
+    // raw bytes and breaks signature verification silently.
     app.use(createCallbackRouter(taskStore, webhookAdapter, registry));
 
     app.use(express.json());
 
-    app.post("/mcp", async (req, res) => {
+    const mcpAuth = requireBearerAuth(authToken);
+    app.post("/mcp", mcpAuth, async (req, res) => {
       const httpTransport = new StreamableHTTPServerTransport({
         sessionIdGenerator: undefined,
         enableJsonResponse: true,
+        enableDnsRebindingProtection: true,
+        allowedHosts,
       });
       res.on("close", () => {
         httpTransport.close().catch(console.error);
