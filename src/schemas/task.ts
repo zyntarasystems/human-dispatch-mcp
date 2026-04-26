@@ -6,9 +6,6 @@ import { isPublicHttpsUrl } from "../services/security/url-guard.js";
 export const TaskStatusSchema = z.enum([
   "pending",
   "routed",
-  "assigned",
-  "in_progress",
-  "awaiting_review",
   "completed",
   "failed",
   "cancelled",

@@ -14,7 +14,7 @@ export function registerListTool(
 Returns tasks sorted by creation time (newest first). Use filters to narrow results by status, backend, or category.
 
 PARAMETERS:
-- status: (optional) Filter by task status: pending, routed, assigned, in_progress, awaiting_review, completed, failed, cancelled
+- status: (optional) Filter by task status: pending, routed, completed, failed, cancelled
 - backend_id: (optional) Filter by backend: webhook_provider, manual
 - category: (optional) Filter by category: errand, photo_video, data_collection, verification, delivery, digital_micro, in_person, custom
 - limit: (optional) Max results to return, 1-100, default 20

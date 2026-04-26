@@ -3,9 +3,6 @@
 export enum TaskStatus {
   PENDING = "pending",
   ROUTED = "routed",
-  ASSIGNED = "assigned",
-  IN_PROGRESS = "in_progress",
-  AWAITING_REVIEW = "awaiting_review",
   COMPLETED = "completed",
   FAILED = "failed",
   CANCELLED = "cancelled",
