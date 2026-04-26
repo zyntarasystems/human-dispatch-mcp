@@ -3,7 +3,6 @@ import { z } from "zod";
 import {
   Task,
   TaskCategory,
-  TaskType,
   WebhookProvider,
 } from "../../types.js";
 import { ProviderRegistrationSchema } from "../../schemas/task.js";
@@ -52,8 +51,8 @@ export class ProviderRegistry {
       name: params.name,
       webhook_url: params.webhook_url,
       webhook_secret: params.webhook_secret,
-      categories: params.categories as TaskCategory[],
-      task_types: params.task_types as TaskType[],
+      categories: params.categories,
+      task_types: params.task_types,
       regions: params.regions,
       min_budget_usd: params.min_budget_usd,
       max_budget_usd: params.max_budget_usd,

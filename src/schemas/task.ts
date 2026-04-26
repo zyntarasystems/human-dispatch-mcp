@@ -1,52 +1,37 @@
 import { z } from "zod";
 import { isPublicHttpsUrl } from "../services/security/url-guard.js";
+import {
+  BackendId,
+  ProofType,
+  QualitySLA,
+  TaskCategory,
+  TaskStatus,
+  TaskType,
+} from "../types.js";
 
 // ─── Enum Schemas ──────────────────────────────────────────
+//
+// Derived from the TS enums in ../types.ts via z.nativeEnum so the value
+// list lives in exactly one place. Adding a new enum member requires
+// editing only types.ts; the schema picks it up automatically.
 
-export const TaskStatusSchema = z.enum([
-  "pending",
-  "routed",
-  "completed",
-  "failed",
-  "cancelled",
-]).describe("Current status of the task in its lifecycle");
+export const TaskStatusSchema = z.nativeEnum(TaskStatus)
+  .describe("Current status of the task in its lifecycle");
 
-export const TaskTypeSchema = z.enum([
-  "physical",
-  "digital",
-  "hybrid",
-]).describe("Whether the task requires physical presence, is digital-only, or both");
+export const TaskTypeSchema = z.nativeEnum(TaskType)
+  .describe("Whether the task requires physical presence, is digital-only, or both");
 
-export const TaskCategorySchema = z.enum([
-  "errand",
-  "photo_video",
-  "data_collection",
-  "verification",
-  "delivery",
-  "digital_micro",
-  "in_person",
-  "custom",
-]).describe("Category of the task — determines which backends are best suited");
+export const TaskCategorySchema = z.nativeEnum(TaskCategory)
+  .describe("Category of the task — determines which backends are best suited");
 
-export const ProofTypeSchema = z.enum([
-  "photo",
-  "video",
-  "gps_checkin",
-  "text_report",
-  "receipt",
-  "signature",
-]).describe("Type of proof-of-completion required from the human worker");
+export const ProofTypeSchema = z.nativeEnum(ProofType)
+  .describe("Type of proof-of-completion required from the human worker");
 
-export const QualitySLASchema = z.enum([
-  "low",
-  "medium",
-  "high",
-]).describe("Quality/speed tradeoff: low=fastest/cheapest, medium=default, high=verified workers with multi-proof");
+export const QualitySLASchema = z.nativeEnum(QualitySLA)
+  .describe("Quality/speed tradeoff: low=fastest/cheapest, medium=default, high=verified workers with multi-proof");
 
-export const BackendIdSchema = z.enum([
-  "webhook_provider",
-  "manual",
-]).describe("Identifier for a backend task-routing service");
+export const BackendIdSchema = z.nativeEnum(BackendId)
+  .describe("Identifier for a backend task-routing service");
 
 // ─── Shared URL Refinement ─────────────────────────────────
 

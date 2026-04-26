@@ -1,7 +1,6 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { TaskFilterSchema } from "../schemas/task.js";
 import { TaskStore } from "../services/task-store.js";
-import { BackendId, TaskCategory, TaskStatus } from "../types.js";
 
 export function registerListTool(
   server: McpServer,
@@ -35,9 +34,9 @@ DON'T USE WHEN:
       const filters = TaskFilterSchema.parse(params);
 
       const { total, tasks } = taskStore.listTasks({
-        status: filters.status as TaskStatus | undefined,
-        backend_id: filters.backend_id as BackendId | undefined,
-        category: filters.category as TaskCategory | undefined,
+        status: filters.status,
+        backend_id: filters.backend_id,
+        category: filters.category,
         limit: filters.limit,
         offset: filters.offset,
       });
