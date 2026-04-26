@@ -3,6 +3,12 @@ import type { Request, Response } from "express";
 import { WEBHOOK_SIGNATURE_HEADER, WEBHOOK_PROVIDER_ID_HEADER } from "../../constants.js";
 import { CallbackPayloadSchema } from "../../schemas/task.js";
 import { TaskStatus, ProofSubmission } from "../../types.js";
+
+const TERMINAL_STATUSES: ReadonlySet<TaskStatus> = new Set([
+  TaskStatus.COMPLETED,
+  TaskStatus.FAILED,
+  TaskStatus.CANCELLED,
+]);
 import { TaskStore } from "../task-store.js";
 import { WebhookProviderAdapter } from "../backends/webhook-provider.js";
 import { ProviderRegistry } from "./registry.js";
@@ -87,6 +93,18 @@ async function handleCallback(
   const taskOwnerId = webhookAdapter.getProviderIdForTask(task.backend_task_id);
   if (taskOwnerId !== providerId) {
     res.status(403).json({ error: "Provider does not own this task" });
+    return;
+  }
+
+  // Reject callbacks for tasks already in a terminal state. This blocks
+  // replay attacks (re-sending a captured callback inflates provider stats
+  // and overwrites proof/cost) and prevents a provider from flipping a
+  // user-cancelled task back to completed.
+  if (TERMINAL_STATUSES.has(task.status)) {
+    res.status(409).json({
+      error: "Task already in terminal state",
+      current_status: task.status,
+    });
     return;
   }
 
