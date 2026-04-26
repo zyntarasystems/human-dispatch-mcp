@@ -70,8 +70,18 @@ async function handleCallback(
     return;
   }
 
-  // Verify HMAC signature
-  const rawBody = Buffer.isBuffer(req.body) ? req.body.toString("utf-8") : String(req.body);
+  // Verify HMAC signature. The raw body Buffer is load-bearing — the
+  // signature was computed over the bytes the provider POSTed, not over a
+  // re-serialised JSON string. If the body has already been parsed (e.g.
+  // express.json() was mounted before this router) we cannot recover the
+  // exact bytes and verification would be unsafe. Fail loudly instead of
+  // falling back to String(req.body), which would silently produce 401s.
+  if (!Buffer.isBuffer(req.body)) {
+    console.error("[callback] Raw body missing — express.json() likely mounted before callback router");
+    res.status(500).json({ error: "Server misconfiguration" });
+    return;
+  }
+  const rawBody = req.body.toString("utf-8");
   if (!verifySignature(rawBody, signature, provider.webhook_secret)) {
     res.status(401).json({ error: "Invalid signature" });
     return;
