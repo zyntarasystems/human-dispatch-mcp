@@ -87,6 +87,8 @@ The task should route to your registered provider. If no providers match, it fal
 
 > **Note:** HTTP transport binds to `127.0.0.1` only. For remote access, place a TLS-terminating reverse proxy (e.g. nginx, Caddy) in front of the server. Never expose the port directly.
 
+> **Required:** HTTP transport refuses to start without `MCP_AUTH_TOKEN` set. All `POST /mcp` requests must include `Authorization: Bearer <MCP_AUTH_TOKEN>`. The `/callbacks/task/:taskId` endpoint uses HMAC-signature auth instead — providers do not see the bearer token.
+
 ```json
 {
   "mcpServers": {
@@ -95,7 +97,8 @@ The task should route to your registered provider. If no providers match, it fal
       "args": ["human-dispatch-mcp"],
       "env": {
         "TRANSPORT": "http",
-        "PORT": "3000"
+        "PORT": "3000",
+        "MCP_AUTH_TOKEN": "a-long-random-string-32-chars-or-more"
       }
     }
   }
@@ -170,6 +173,8 @@ Your endpoint receives POST requests with these headers:
 Request body:
 ```json
 {
+  "payload_version": 1,
+  "event": "task.new",
   "task_id": "uuid",
   "description": "What needs to be done",
   "category": "photo_video",
@@ -182,6 +187,8 @@ Request body:
 }
 ```
 
+`payload_version` is the request-shape version; pin your parser to a known version and reject unknown ones. Today only `1` is sent.
+
 Respond with:
 ```json
 { "accepted": true, "external_id": "your-internal-id" }
@@ -191,6 +198,10 @@ Or reject:
 ```json
 { "accepted": false, "reason": "Outside service area" }
 ```
+
+### Handle `provider.verify` events
+
+When a provider is registered, the server immediately POSTs a `provider.verify` event to confirm the endpoint is reachable and willing. **A 200 alone is not enough** — your endpoint must return `{ "verified": true }` in the JSON body. Anything else (missing field, `false`, non-JSON) marks verification as unreachable. This makes registration require explicit consent from your endpoint, not just URL reachability.
 
 ### 3. Report completion (HTTP transport only)
 
@@ -218,6 +229,8 @@ const crypto = require('crypto');
 const expected = 'sha256=' + crypto.createHmac('sha256', secret).update(rawBody).digest('hex');
 const valid = crypto.timingSafeEqual(Buffer.from(expected), Buffer.from(signatureHeader));
 ```
+
+**HMAC canonicalization contract (load-bearing):** the signature is computed over the **exact bytes** the request was POSTed with, not over a re-serialized JSON object. When you send a callback, sign the byte string you put on the wire — do not parse the body, re-stringify it, and sign that, because key ordering or whitespace may differ. Use `JSON.stringify(payload)` once, capture the resulting string, sign that string, send that string. The server applies the same rule on the receiving side: it captures the raw request body buffer before any JSON parser touches it.
 
 ## Smart Routing
 
@@ -287,8 +300,24 @@ asyncio.run(dispatch_photo_task())
 |----------|---------|-------------|
 | `TRANSPORT` | `stdio` | Transport mode: `stdio` or `http` |
 | `PORT` | `3000` | HTTP port (when TRANSPORT=http) |
+| `MCP_AUTH_TOKEN` | — | Bearer token required on every `POST /mcp` request when `TRANSPORT=http`. The HTTP transport refuses to start if unset. |
 | `MANUAL_WEBHOOK_URL` | — | Webhook URL for manual task notifications |
 | `PROVIDERS_CONFIG` | — | JSON array of provider objects to pre-seed on startup |
+
+## Security
+
+This server processes outbound HTTP requests on behalf of its callers and is intended to run inside trusted infrastructure. The relevant guarantees:
+
+- **HTTP transport requires authentication.** `MCP_AUTH_TOKEN` is mandatory; the server refuses to start without it. Bearer comparison is constant-time (`timingSafeEqual`).
+- **DNS-rebinding protection** is enabled on `POST /mcp`. The transport rejects requests whose `Host` header points at anything other than the configured loopback.
+- **Outbound URL guard.** Every webhook URL the server fetches (provider registration, `MANUAL_WEBHOOK_URL`, `callback_url`, proof URLs) goes through a structured validator: HTTPS only, no loopback, no RFC1918 / link-local / unique-local hosts, with a DNS resolution check at fetch time to defeat last-second rebinds. There is no opt-out — use a public tunnel (ngrok, cloudflared) for local testing.
+- **Inbound callbacks are authenticated by HMAC, not by IP.** Each provider registers its own webhook secret. The server verifies `x-dispatch-signature` over the **raw request bytes** before parsing JSON. A per-provider token bucket limits callback flood (30 burst, 5/sec sustained).
+- **Terminal-state guard.** Once a task reaches `completed`, `failed`, or `cancelled`, callbacks for that task are rejected with 409. This blocks replays, late provider retries, and provider-driven status flips.
+- **Webhook payload versioning.** All outbound bodies carry `payload_version` and `event` discriminators. Pin your parser; reject unknown versions.
+- **Webhook secrets never leave the server.** Provider data returned by MCP tools is sanitized to drop `webhook_secret`. The same field never appears in logs.
+- **No persistence.** Tasks, providers, and per-task state live in memory. Restarting the server discards all state. If you operate this in production, terminate it cleanly so in-flight tasks fail fast rather than hang in providers.
+
+If you discover a security issue, please open a private security advisory on GitHub rather than a public issue.
 
 ## Roadmap
 
