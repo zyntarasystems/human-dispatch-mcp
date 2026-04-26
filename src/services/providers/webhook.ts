@@ -6,6 +6,7 @@ import {
   WebhookProvider,
   Task,
 } from "../../types.js";
+import { safeFetch } from "../security/url-guard.js";
 
 export function signPayload(body: string, secret: string): string {
   return createHmac("sha256", secret).update(body).digest("hex");
@@ -48,7 +49,7 @@ export async function dispatchToProvider(
   const timeout = setTimeout(() => controller.abort(), WEBHOOK_TIMEOUT_MS);
 
   try {
-    const response = await fetch(provider.webhook_url, {
+    const response = await safeFetch(provider.webhook_url, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -92,7 +93,7 @@ export async function dispatchCancelToProvider(
   const timeout = setTimeout(() => controller.abort(), WEBHOOK_TIMEOUT_MS);
 
   try {
-    const response = await fetch(provider.webhook_url, {
+    const response = await safeFetch(provider.webhook_url, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -121,7 +122,7 @@ export async function verifyProviderEndpoint(provider: WebhookProvider): Promise
   const timeout = setTimeout(() => controller.abort(), WEBHOOK_TIMEOUT_MS);
 
   try {
-    const response = await fetch(provider.webhook_url, {
+    const response = await safeFetch(provider.webhook_url, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",

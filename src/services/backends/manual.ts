@@ -8,6 +8,7 @@ import {
   TaskStatus,
 } from "../../types.js";
 import { BaseBackendAdapter } from "./base.js";
+import { assertPublicHttpsUrl } from "../security/url-guard.js";
 
 export class ManualAdapter extends BaseBackendAdapter {
   readonly id = BackendId.MANUAL;
@@ -17,7 +18,16 @@ export class ManualAdapter extends BaseBackendAdapter {
 
   constructor() {
     super();
-    this.webhookUrl = process.env["MANUAL_WEBHOOK_URL"];
+    const raw = process.env["MANUAL_WEBHOOK_URL"];
+    if (raw) {
+      try {
+        assertPublicHttpsUrl(raw);
+        this.webhookUrl = raw;
+      } catch (err) {
+        const reason = err instanceof Error ? err.message : String(err);
+        console.error(`[manual] MANUAL_WEBHOOK_URL rejected: ${reason}`);
+      }
+    }
   }
 
   getCapabilities(): BackendCapabilities {

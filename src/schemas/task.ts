@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { isPublicHttpsUrl } from "../services/security/url-guard.js";
 
 // ─── Enum Schemas ──────────────────────────────────────────
 
@@ -50,6 +51,11 @@ export const BackendIdSchema = z.enum([
   "manual",
 ]).describe("Identifier for a backend task-routing service");
 
+// ─── Shared URL Refinement ─────────────────────────────────
+
+export const httpsPublicUrl = z.string().url()
+  .refine(isPublicHttpsUrl, { message: "Must be an HTTPS URL pointing to a public host" });
+
 // ─── Composite Schemas ─────────────────────────────────────
 
 export const TaskLocationSchema = z.object({
@@ -91,17 +97,7 @@ export const TaskRequestSchema = z.object({
     .describe("Preferred backend services to route this task to, tried in order. If omitted, the router picks the best backend automatically."),
   fallback_chain: z.array(BackendIdSchema).optional()
     .describe("Ordered list of fallback backends if the preferred ones fail. The 'manual' backend is always available as a last resort."),
-  callback_url: z.string().url()
-    .refine((url) => {
-      try {
-        const { hostname, protocol } = new URL(url);
-        if (protocol !== "https:") return false;
-        if (/^(localhost|127\.|10\.|192\.168\.|172\.(1[6-9]|2[0-9]|3[01])\.|169\.254\.|::1|fc00:|fe80:)/i.test(hostname)) return false;
-        return true;
-      } catch {
-        return false;
-      }
-    }, { message: "callback_url must be an HTTPS URL pointing to a public host" })
+  callback_url: httpsPublicUrl
     .nullable().optional()
     .describe("Webhook URL to receive status update notifications. Set to null or omit if you will poll for status instead."),
   metadata: z.record(
@@ -133,18 +129,6 @@ export const TaskFilterSchema = z.object({
 }).strict().describe("Filters for listing tasks with pagination support");
 
 // ─── Provider Schemas ─────────────────────────────────────
-
-const httpsPublicUrl = z.string().url()
-  .refine((url) => {
-    try {
-      const { hostname, protocol } = new URL(url);
-      if (protocol !== "https:") return false;
-      if (/^(localhost|127\.|10\.|192\.168\.|172\.(1[6-9]|2[0-9]|3[01])\.|169\.254\.|::1|fc00:|fe80:)/i.test(hostname)) return false;
-      return true;
-    } catch {
-      return false;
-    }
-  }, { message: "Must be an HTTPS URL pointing to a public host" });
 
 export const ProviderRegistrationSchema = z.object({
   name: z.string().min(1).max(200)
