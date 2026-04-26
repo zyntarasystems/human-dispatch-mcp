@@ -1,5 +1,5 @@
 export const SERVER_NAME = "human-dispatch-mcp";
-export const SERVER_VERSION = "0.3.1";
+export const SERVER_VERSION = "0.4.0";
 
 export const DEFAULT_TRANSPORT = "stdio";
 export const DEFAULT_PORT = 3000;
