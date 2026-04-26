@@ -1,7 +1,7 @@
 {
   "name": "human-dispatch-mcp",
   "mcpName": "io.github.zyntarasystems/human-dispatch-mcp",
-  "version": "0.3.1",
+  "version": "0.4.0",
   "description": "MCP server that dispatches physical-world tasks to humans through a unified API",
   "main": "dist/index.js",
   "bin": {
@@ -14,7 +14,11 @@
     "build": "tsc",
     "start": "node dist/index.js",
     "dev": "tsc --watch",
-    "prepublishOnly": "npm run build"
+    "check-versions": "node scripts/check-versions.mjs",
+    "prepublishOnly": "npm run check-versions && npm run build"
+  },
+  "engines": {
+    "node": ">=18"
   },
   "keywords": [
     "mcp",

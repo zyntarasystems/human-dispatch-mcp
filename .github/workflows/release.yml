@@ -5,16 +5,22 @@ on:
     tags:
       - 'v*'
 
+# Default-deny: jobs that don't override permissions get the read-only set.
+permissions:
+  contents: read
+
 jobs:
-  release:
+  publish:
+    name: Publish to npm
     runs-on: ubuntu-latest
     environment: release
-    defaults:
-      run:
-        working-directory: .
 
+    # Least privilege for the npm publish step:
+    # - id-token: write enables OIDC for npm provenance.
+    # - contents: read is enough to checkout the tag.
+    # contents: write is intentionally scoped only to the release job.
     permissions:
-      contents: write
+      contents: read
       id-token: write
 
     steps:
@@ -25,11 +31,19 @@ jobs:
           node-version: '20'
           registry-url: 'https://registry.npmjs.org'
 
+      # Pin the npm major to insulate from npm 12 breaking changes while
+      # still picking up patches. OIDC trusted publishing requires npm 11+.
       - name: Upgrade npm
-        run: npm install -g npm@latest
+        run: npm install -g npm@11
 
       - name: Install dependencies
         run: npm ci
+
+      # Block known high/critical CVEs in production deps before we publish.
+      # Dev deps (typescript, @modelcontextprotocol/inspector, etc.) are
+      # excluded — they don't ship to npm consumers.
+      - name: Audit production dependencies
+        run: npm audit --omit=dev --audit-level=high
 
       - name: Build
         run: npm run build
@@ -37,7 +51,22 @@ jobs:
       - name: Publish to npm
         run: npm publish --provenance --access public
 
+  github-release:
+    name: Create GitHub Release
+    runs-on: ubuntu-latest
+    needs: publish
+
+    # Only this job gets contents: write. Splitting it from publish keeps the
+    # write token off the box where untrusted dep code can run during npm ci.
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # SHA-pinned to v2.6.2. Third-party action — pin the exact commit so a
+      # compromise of the v2 mutable tag can't silently inject new code.
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65
         with:
           generate_release_notes: true

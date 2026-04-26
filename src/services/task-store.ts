@@ -7,13 +7,34 @@ import {
   TaskStatus,
 } from "../types.js";
 
+const TERMINAL_STATUSES: ReadonlySet<TaskStatus> = new Set([
+  TaskStatus.COMPLETED,
+  TaskStatus.FAILED,
+  TaskStatus.CANCELLED,
+]);
+
 export class TaskStore {
   private static readonly MAX_TASKS = 10_000;
+  private static readonly IDEMPOTENCY_WINDOW_MS = 60 * 60 * 1000; // 1 hour
   private readonly tasks = new Map<string, Task>();
 
   createTask(request: TaskRequest): Task {
+    // Idempotency: if a task with the same client-supplied key was created
+    // within the dedup window, return it instead of creating a duplicate.
+    // Lookup is O(n) over the task map; with the 10k cap this is bounded.
+    if (request.idempotency_key) {
+      const existing = this.findByIdempotencyKey(request.idempotency_key);
+      if (existing) return existing;
+    }
+
     if (this.tasks.size >= TaskStore.MAX_TASKS) {
-      throw new Error("Task store capacity exceeded. Cancel or wait for existing tasks to complete.");
+      this.evictOldestTerminal();
+    }
+    if (this.tasks.size >= TaskStore.MAX_TASKS) {
+      throw new Error(
+        "Task store capacity exceeded and no terminal tasks available to evict. " +
+        "All slots are held by in-flight work; cancel or wait for tasks to complete.",
+      );
     }
 
     const now = new Date().toISOString();
@@ -83,5 +104,46 @@ export class TaskStore {
     const paged = results.slice(filters.offset, filters.offset + filters.limit);
 
     return { total, tasks: paged };
+  }
+
+  /**
+   * Return all non-terminal tasks whose deadline.complete_by is older than
+   * the supplied ISO timestamp. Used by the reaper to time out tasks that
+   * never received a provider callback so their state (and the provider's
+   * current_task_count) can be released.
+   */
+  findExpired(beforeIso: string): Task[] {
+    const result: Task[] = [];
+    for (const task of this.tasks.values()) {
+      if (TERMINAL_STATUSES.has(task.status)) continue;
+      if (task.request.deadline.complete_by < beforeIso) {
+        result.push(task);
+      }
+    }
+    return result;
+  }
+
+  private findByIdempotencyKey(key: string): Task | undefined {
+    const cutoff = Date.now() - TaskStore.IDEMPOTENCY_WINDOW_MS;
+    for (const task of this.tasks.values()) {
+      if (task.request.idempotency_key !== key) continue;
+      if (Date.parse(task.created_at) >= cutoff) return task;
+    }
+    return undefined;
+  }
+
+  private evictOldestTerminal(): void {
+    let oldestId: string | null = null;
+    let oldestUpdatedAt = "￿"; // sorts after any ISO 8601 string
+    for (const task of this.tasks.values()) {
+      if (!TERMINAL_STATUSES.has(task.status)) continue;
+      if (task.updated_at < oldestUpdatedAt) {
+        oldestUpdatedAt = task.updated_at;
+        oldestId = task.id;
+      }
+    }
+    if (oldestId !== null) {
+      this.tasks.delete(oldestId);
+    }
   }
 }

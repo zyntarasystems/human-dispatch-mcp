@@ -5,7 +5,9 @@ import {
   TaskStatus,
   TaskType,
 } from "../types.js";
+import { ROUTING_DEADLINE_MS } from "../constants.js";
 import { TaskStore } from "./task-store.js";
+import { sanitizeErrorMessage } from "./security/url-guard.js";
 
 export class Router {
   private readonly adapters: Map<BackendId, BackendAdapter>;
@@ -18,8 +20,15 @@ export class Router {
 
   async route(task: Task): Promise<Task> {
     const chain = this.buildRoutingChain(task);
+    const deadline = Date.now() + ROUTING_DEADLINE_MS;
+    let timedOut = false;
 
     for (const backendId of chain) {
+      if (Date.now() >= deadline) {
+        timedOut = true;
+        console.error(`[router] Routing deadline reached for task ${task.id}; abandoning chain`);
+        break;
+      }
       const adapter = this.adapters.get(backendId);
       if (!adapter) continue;
 
@@ -45,7 +54,7 @@ export class Router {
         console.error(`[router] Task ${task.id} routed to ${backendId} (backend_task_id: ${result.backend_task_id})`);
         return task;
       } catch (err) {
-        const errorMessage = err instanceof Error ? err.message : String(err);
+        const errorMessage = sanitizeErrorMessage(err);
         console.error(`[router] Backend ${backendId} failed for task ${task.id}: ${errorMessage}`);
 
         task = this.taskStore.updateTask(task.id, {
@@ -65,7 +74,9 @@ export class Router {
     // All backends failed
     task = this.taskStore.updateTask(task.id, {
       status: TaskStatus.FAILED,
-      error: `All backends failed. Attempted: ${chain.join(", ")}. Check backend configuration and task requirements.`,
+      error: timedOut
+        ? `Routing deadline (${ROUTING_DEADLINE_MS}ms) exceeded. Attempted: ${chain.join(", ")}. Check provider responsiveness.`
+        : `All backends failed. Attempted: ${chain.join(", ")}. Check backend configuration and task requirements.`,
     });
 
     return task;
