@@ -113,8 +113,14 @@ export class WebhookProviderAdapter extends BaseBackendAdapter {
     const cancelled = await dispatchCancelToProvider(provider, backend_task_id, backend_task_id);
 
     if (cancelled) {
-      this.taskStatusMap.set(backend_task_id, { status: TaskStatus.CANCELLED });
       this.registry.decrementTaskCount(providerId);
+      // Free per-task state once the task is terminal. Subsequent callbacks
+      // for this backend_task_id will not find an owner mapping and will be
+      // rejected by the callback handler's terminal-state check (which runs
+      // before the ownership check). Dropping the entry also makes the
+      // decrement idempotent: a second cancel finds no providerId and skips.
+      this.taskProviderMap.delete(backend_task_id);
+      this.taskStatusMap.delete(backend_task_id);
     }
 
     return cancelled;
@@ -123,11 +129,15 @@ export class WebhookProviderAdapter extends BaseBackendAdapter {
   updateTaskStatus(backendTaskId: string, status: BackendStatusResult): void {
     this.taskStatusMap.set(backendTaskId, status);
 
-    // Decrement active task count on terminal states
+    // Decrement active task count on terminal states, then drop per-task
+    // state. Idempotent by construction: after the delete, a second call for
+    // the same backendTaskId finds no providerId and the decrement is skipped.
     if (status.status === TaskStatus.COMPLETED || status.status === TaskStatus.FAILED) {
       const providerId = this.taskProviderMap.get(backendTaskId);
       if (providerId) {
         this.registry.decrementTaskCount(providerId);
+        this.taskProviderMap.delete(backendTaskId);
+        this.taskStatusMap.delete(backendTaskId);
       }
     }
   }

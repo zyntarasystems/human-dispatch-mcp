@@ -99,22 +99,24 @@ async function handleCallback(
     return;
   }
 
-  // Verify the calling provider actually owns this task
-  const taskOwnerId = webhookAdapter.getProviderIdForTask(task.backend_task_id);
-  if (taskOwnerId !== providerId) {
-    res.status(403).json({ error: "Provider does not own this task" });
-    return;
-  }
-
   // Reject callbacks for tasks already in a terminal state. This blocks
   // replay attacks (re-sending a captured callback inflates provider stats
   // and overwrites proof/cost) and prevents a provider from flipping a
-  // user-cancelled task back to completed.
+  // user-cancelled task back to completed. Runs BEFORE the ownership check
+  // because the per-task ownership map is dropped when a task hits terminal
+  // state — otherwise a legitimate late callback would surface as 403.
   if (TERMINAL_STATUSES.has(task.status)) {
     res.status(409).json({
       error: "Task already in terminal state",
       current_status: task.status,
     });
+    return;
+  }
+
+  // Verify the calling provider actually owns this task
+  const taskOwnerId = webhookAdapter.getProviderIdForTask(task.backend_task_id);
+  if (taskOwnerId !== providerId) {
+    res.status(403).json({ error: "Provider does not own this task" });
     return;
   }
 
