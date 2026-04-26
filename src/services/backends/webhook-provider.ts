@@ -101,7 +101,7 @@ export class WebhookProviderAdapter extends BaseBackendAdapter {
     return this.taskStatusMap.get(backend_task_id) ?? { status: TaskStatus.ROUTED };
   }
 
-  async cancelTask(backend_task_id: string): Promise<boolean> {
+  async cancelTask(task_id: string, backend_task_id: string): Promise<boolean> {
     const providerId = this.taskProviderMap.get(backend_task_id);
     if (!providerId) {
       this.log(`Cannot cancel — no provider mapped for ${backend_task_id}`);
@@ -114,8 +114,7 @@ export class WebhookProviderAdapter extends BaseBackendAdapter {
       return false;
     }
 
-    // We don't have the original task ID here, use backend_task_id as reference
-    const cancelled = await dispatchCancelToProvider(provider, backend_task_id, backend_task_id);
+    const cancelled = await dispatchCancelToProvider(provider, task_id, backend_task_id);
 
     if (cancelled) {
       this.registry.decrementTaskCount(providerId);

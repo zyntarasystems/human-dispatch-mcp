@@ -83,7 +83,7 @@ export class ManualAdapter extends BaseBackendAdapter {
     return { status };
   }
 
-  async cancelTask(backend_task_id: string): Promise<boolean> {
+  async cancelTask(_task_id: string, backend_task_id: string): Promise<boolean> {
     const status = this.taskStatuses.get(backend_task_id);
     if (status === undefined) {
       this.log(`Cannot cancel — manual task ${backend_task_id} not found`);

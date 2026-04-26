@@ -147,7 +147,12 @@ export interface BackendAdapter {
   isConfigured(): boolean;
   submitTask(task: Task): Promise<BackendSubmitResult>;
   getStatus(backend_task_id: string): Promise<BackendStatusResult>;
-  cancelTask(backend_task_id: string): Promise<boolean>;
+  /**
+   * Cancel a task. Receives both the platform task UUID and the
+   * backend-assigned external id so adapters can correlate against the
+   * original `task.new` payload.
+   */
+  cancelTask(task_id: string, backend_task_id: string): Promise<boolean>;
 }
 
 // ─── Webhook Provider Types ───────────────────────────────
