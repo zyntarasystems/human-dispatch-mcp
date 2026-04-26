@@ -152,7 +152,19 @@ export async function verifyProviderEndpoint(provider: WebhookProvider): Promise
       signal: controller.signal,
     });
 
-    return response.ok;
+    if (!response.ok) return false;
+
+    // A 200 alone is not enough — any random HTTPS endpoint can return 200,
+    // so we'd be confirming "is this URL reachable" rather than "is this URL
+    // a willing provider for this id with this secret". Require the body to
+    // be JSON containing { verified: true }; the provider has to read our
+    // signed payload and explicitly opt in.
+    try {
+      const result = await response.json() as { verified?: unknown };
+      return result?.verified === true;
+    } catch {
+      return false;
+    }
   } catch {
     return false;
   } finally {
