@@ -6,6 +6,7 @@ import {
   Task,
   TaskCategory,
   TaskStatus,
+  WebhookDispatchResult,
 } from "../../types.js";
 
 const LOCATION_CATEGORIES: ReadonlySet<TaskCategory> = new Set([
@@ -18,6 +19,11 @@ import { BaseBackendAdapter } from "./base.js";
 import { MAX_PROVIDER_CANDIDATES } from "../../constants.js";
 import { ProviderRegistry } from "../providers/registry.js";
 import { dispatchToProvider, dispatchCancelToProvider } from "../providers/webhook.js";
+import { sanitizeForLog } from "../security/logging.js";
+import { sanitizeErrorMessage } from "../security/url-guard.js";
+
+type ProviderDispatch = typeof dispatchToProvider;
+type ProviderCancelDispatch = typeof dispatchCancelToProvider;
 
 export class WebhookProviderAdapter extends BaseBackendAdapter {
   readonly id = BackendId.WEBHOOK_PROVIDER;
@@ -27,7 +33,11 @@ export class WebhookProviderAdapter extends BaseBackendAdapter {
   // Status cache updated by callback handler
   private readonly taskStatusMap = new Map<string, BackendStatusResult>();
 
-  constructor(private readonly registry: ProviderRegistry) {
+  constructor(
+    private readonly registry: ProviderRegistry,
+    private readonly providerDispatch: ProviderDispatch = dispatchToProvider,
+    private readonly providerCancelDispatch: ProviderCancelDispatch = dispatchCancelToProvider,
+  ) {
     super();
   }
 
@@ -92,22 +102,32 @@ export class WebhookProviderAdapter extends BaseBackendAdapter {
     const errors: string[] = [];
 
     for (const provider of candidates) {
-      this.log(`Trying provider ${provider.name} (${provider.id})`);
+      const providerName = sanitizeForLog(provider.name);
+      this.log(`Trying provider ${providerName} (${provider.id})`);
 
-      const result = await dispatchToProvider(provider, task);
+      if (!this.registry.tryReserveTaskSlot(provider.id)) {
+        const reason = "provider capacity unavailable";
+        errors.push(`${providerName}: ${reason}`);
+        this.log(`Provider ${providerName} did not accept: ${reason}`);
+        continue;
+      }
+
+      const result = await this.providerDispatch(provider, task).catch((err: unknown): WebhookDispatchResult => {
+        return { accepted: false, reason: sanitizeErrorMessage(err) };
+      });
 
       if (result.accepted && result.external_id) {
         this.taskProviderMap.set(result.external_id, provider.id);
         this.taskStatusMap.set(result.external_id, { status: TaskStatus.ROUTED });
-        this.registry.incrementTaskCount(provider.id);
 
-        this.log(`Task ${task.id} accepted by ${provider.name} (external_id: ${result.external_id})`);
+        this.log(`Task ${task.id} accepted by ${providerName} (external_id: ${sanitizeForLog(result.external_id)})`);
         return { backend_task_id: result.external_id };
       }
 
-      const reason = result.reason ?? "rejected";
-      errors.push(`${provider.name}: ${reason}`);
-      this.log(`Provider ${provider.name} did not accept: ${reason}`);
+      this.registry.decrementTaskCount(provider.id);
+      const reason = sanitizeForLog(result.reason ?? "rejected");
+      errors.push(`${providerName}: ${reason}`);
+      this.log(`Provider ${providerName} did not accept: ${reason}`);
     }
 
     throw this.wrapError(
@@ -133,7 +153,7 @@ export class WebhookProviderAdapter extends BaseBackendAdapter {
       return false;
     }
 
-    const cancelled = await dispatchCancelToProvider(provider, task_id, backend_task_id);
+    const cancelled = await this.providerCancelDispatch(provider, task_id, backend_task_id);
 
     if (cancelled) {
       this.registry.decrementTaskCount(providerId);

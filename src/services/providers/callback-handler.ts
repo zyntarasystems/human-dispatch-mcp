@@ -13,6 +13,7 @@ import { TaskStore } from "../task-store.js";
 import { WebhookProviderAdapter } from "../backends/webhook-provider.js";
 import { ProviderRegistry } from "./registry.js";
 import { verifySignature } from "./webhook.js";
+import { sanitizeForLog } from "../security/logging.js";
 
 // Per-provider token bucket. Burst up to BUCKET_CAPACITY callbacks, then
 // sustained REFILL_PER_SEC. Sized for one provider completing a fast batch
@@ -71,7 +72,7 @@ export function createCallbackRouter(
   return router;
 }
 
-async function handleCallback(
+export async function handleCallback(
   req: Request,
   res: Response,
   taskStore: TaskStore,
@@ -202,6 +203,6 @@ async function handleCallback(
   registry.updateProviderStats(providerId, payload.status);
   provider.last_seen_at = new Date().toISOString();
 
-  console.error(`[callback] Task ${taskId} updated to ${newStatus} by provider ${provider.name}`);
+  console.error(`[callback] Task ${taskId} updated to ${newStatus} by provider ${sanitizeForLog(provider.name)}`);
   res.status(200).json({ received: true });
 }

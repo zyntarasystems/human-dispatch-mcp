@@ -28,7 +28,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22'
           registry-url: 'https://registry.npmjs.org'
 
       # Pin the npm major to insulate from npm 12 breaking changes while
@@ -39,14 +39,20 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      # Block known high/critical CVEs in production deps before we publish.
+      - name: Run tests
+        run: npm test
+
+      - name: Check version metadata
+        run: npm run check-versions
+
+      # Block known critical CVEs in production deps before we publish.
       # Dev deps (typescript, @modelcontextprotocol/inspector, etc.) are
       # excluded — they don't ship to npm consumers.
       - name: Audit production dependencies
-        run: npm audit --omit=dev --audit-level=high
+        run: npm audit --omit=dev --audit-level=critical
 
-      - name: Build
-        run: npm run build
+      - name: Check publish contents
+        run: npm run pack:check
 
       - name: Publish to npm
         run: npm publish --provenance --access public

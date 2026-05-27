@@ -1,4 +1,5 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
+import { z } from "zod";
 import { WEBHOOK_TIMEOUT_MS, WEBHOOK_SIGNATURE_HEADER } from "../../constants.js";
 import {
   WebhookDispatchResult,
@@ -7,6 +8,7 @@ import {
   Task,
 } from "../../types.js";
 import { safeFetch, sanitizeErrorMessage } from "../security/url-guard.js";
+import { sanitizeForLog } from "../security/logging.js";
 
 export function signPayload(body: string, secret: string): string {
   return createHmac("sha256", secret).update(body).digest("hex");
@@ -30,6 +32,20 @@ export function verifySignature(body: string, signature: string, secret: string)
  */
 const PAYLOAD_VERSION = 1;
 
+const WebhookDispatchResultSchema = z.object({
+  accepted: z.boolean(),
+  external_id: z.string().min(1).max(500).optional(),
+  reason: z.string().max(500).optional(),
+}).strict().superRefine((value, ctx) => {
+  if (value.accepted && !value.external_id) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["external_id"],
+      message: "external_id is required when accepted is true",
+    });
+  }
+});
+
 function buildTaskPayload(task: Task): Record<string, unknown> {
   return {
     payload_version: PAYLOAD_VERSION,
@@ -51,6 +67,7 @@ export async function dispatchToProvider(
   provider: WebhookProvider,
   task: Task,
 ): Promise<WebhookDispatchResult> {
+  const providerName = sanitizeForLog(provider.name);
   const payload = buildTaskPayload(task);
   const body = JSON.stringify(payload);
   const signature = `sha256=${signPayload(body, provider.webhook_secret)}`;
@@ -72,19 +89,19 @@ export async function dispatchToProvider(
     });
 
     if (!response.ok) {
-      console.error(`[webhook] Provider ${provider.name} returned ${response.status}`);
+      console.error(`[webhook] Provider ${providerName} returned ${response.status}`);
       return { accepted: false, reason: `HTTP ${response.status}` };
     }
 
-    const result = await response.json() as WebhookDispatchResult;
-    return {
-      accepted: Boolean(result.accepted),
-      external_id: result.external_id,
-      reason: result.reason,
-    };
+    const parsed = WebhookDispatchResultSchema.safeParse(await response.json());
+    if (!parsed.success) {
+      return { accepted: false, reason: "Invalid provider response" };
+    }
+
+    return parsed.data as WebhookDispatchResult;
   } catch (err) {
     const message = sanitizeErrorMessage(err);
-    console.error(`[webhook] Dispatch to ${provider.name} failed: ${message}`);
+    console.error(`[webhook] Dispatch to ${providerName} failed: ${sanitizeForLog(message)}`);
     return { accepted: false, reason: message };
   } finally {
     clearTimeout(timeout);
@@ -96,6 +113,7 @@ export async function dispatchCancelToProvider(
   taskId: string,
   externalId: string,
 ): Promise<boolean> {
+  const providerName = sanitizeForLog(provider.name);
   const body = JSON.stringify({
     payload_version: PAYLOAD_VERSION,
     event: "task.cancel" satisfies WebhookEvent,
@@ -122,7 +140,7 @@ export async function dispatchCancelToProvider(
 
     return response.ok;
   } catch (err) {
-    console.error(`[webhook] Cancel dispatch to ${provider.name} failed: ${sanitizeErrorMessage(err)}`);
+    console.error(`[webhook] Cancel dispatch to ${providerName} failed: ${sanitizeForLog(sanitizeErrorMessage(err))}`);
     return false;
   } finally {
     clearTimeout(timeout);

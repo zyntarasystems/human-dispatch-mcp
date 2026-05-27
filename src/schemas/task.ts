@@ -50,17 +50,21 @@ export const TaskLocationSchema = z.object({
 
 export const BudgetSchema = z.object({
   max_usd: z.number().positive().max(1_000_000).describe("Maximum amount in USD you are willing to pay for this task (max 1,000,000)"),
-  currency: z.string().default("USD").describe("Currency code — currently only USD is supported"),
+  currency: z.literal("USD").default("USD").describe("Currency code — only USD is supported"),
 }).strict().describe("Budget constraints for the task");
 
 export const DeadlineSchema = z.object({
-  complete_by: z.string().datetime().describe("ISO 8601 datetime by which the task must be completed (e.g. '2025-01-15T18:00:00Z')"),
+  complete_by: z.string().datetime()
+    .refine(value => Date.parse(value) > Date.now() - 30_000, {
+      message: "complete_by must be in the future",
+    })
+    .describe("ISO 8601 datetime by which the task must be completed (e.g. '2027-01-15T18:00:00Z')"),
   urgency: z.enum(["low", "medium", "high", "asap"]).describe("Urgency level: low=days, medium=hours, high=under an hour, asap=immediately"),
 }).strict().describe("When the task needs to be completed");
 
 // ─── Main Task Request Schema ──────────────────────────────
 
-export const TaskRequestSchema = z.object({
+export const TaskRequestInputSchema = z.object({
   description: z.string()
     .min(10)
     .max(2000)
@@ -79,9 +83,6 @@ export const TaskRequestSchema = z.object({
     .describe("Preferred backend services to route this task to, tried in order. If omitted, the router picks the best backend automatically."),
   fallback_chain: z.array(BackendIdSchema).optional()
     .describe("Ordered list of fallback backends if the preferred ones fail. The 'manual' backend is always available as a last resort."),
-  callback_url: httpsPublicUrl
-    .nullable().optional()
-    .describe("Webhook URL to receive status update notifications. Set to null or omit if you will poll for status instead."),
   metadata: z.record(
     z.string().max(64),
     z.string().max(256),
@@ -91,7 +92,23 @@ export const TaskRequestSchema = z.object({
     .describe("Arbitrary key-value pairs for your own tracking (e.g. {'order_id': '12345', 'agent_name': 'my-bot'})"),
   idempotency_key: z.string().min(1).max(128).optional()
     .describe("Optional client-supplied key to dedupe retried submissions. If a task with the same key was created within the last hour, the existing task is returned instead of a duplicate. Example: 'order-12345-attempt-1'"),
-}).strict().describe("Complete task submission — everything the system needs to route and track a human task");
+}).strict();
+
+export const TaskRequestSchema = TaskRequestInputSchema.superRefine((data, ctx) => {
+  if (data.task_type === TaskType.PHYSICAL || data.task_type === TaskType.HYBRID) {
+    const location = data.location;
+    const hasAddress = Boolean(location?.address);
+    const hasRegion = Boolean(location?.region);
+    const hasCoordinates = location?.latitude !== undefined && location?.longitude !== undefined;
+    if (!location || (!hasAddress && !hasRegion && !hasCoordinates)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["location"],
+        message: "location with address, region, or coordinates is required for physical and hybrid tasks",
+      });
+    }
+  }
+}).describe("Complete task submission — everything the system needs to route and track a human task");
 
 // ─── Query/Filter Schemas ──────────────────────────────────
 

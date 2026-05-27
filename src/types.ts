@@ -76,7 +76,6 @@ export interface TaskRequest {
   quality_sla: QualitySLA;
   preferred_backends?: BackendId[];
   fallback_chain?: BackendId[];
-  callback_url?: string | null;
   metadata?: Record<string, string>;
   idempotency_key?: string;
 }

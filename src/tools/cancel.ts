@@ -44,14 +44,14 @@ DON'T USE WHEN:
         };
       }
 
-      if (task.status === TaskStatus.COMPLETED) {
+      if (task.status === TaskStatus.COMPLETED || task.status === TaskStatus.FAILED) {
         return {
           content: [{
             type: "text" as const,
             text: JSON.stringify({
               task_id,
               cancelled: false,
-              message: "Task is already completed and cannot be cancelled.",
+              message: `Task is already ${task.status} and cannot be cancelled.`,
             }),
           }],
         };

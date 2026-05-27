@@ -7,8 +7,9 @@ import {
   Task,
   TaskStatus,
 } from "../../types.js";
+import { WEBHOOK_TIMEOUT_MS } from "../../constants.js";
 import { BaseBackendAdapter } from "./base.js";
-import { assertPublicHttpsUrl } from "../security/url-guard.js";
+import { assertPublicHttpsUrl, safeFetch, sanitizeErrorMessage } from "../security/url-guard.js";
 
 export class ManualAdapter extends BaseBackendAdapter {
   readonly id = BackendId.MANUAL;
@@ -55,15 +56,36 @@ export class ManualAdapter extends BaseBackendAdapter {
     this.taskStatuses.set(manualId, TaskStatus.PENDING);
 
     if (this.webhookUrl) {
-      this.log(
-        `Would send webhook to ${this.webhookUrl} with task ${task.id}: ${JSON.stringify({
-          manual_task_id: manualId,
-          description: task.request.description,
-          category: task.request.category,
-          budget: task.request.budget,
-          deadline: task.request.deadline,
-        })}`,
-      );
+      const body = JSON.stringify({
+        manual_task_id: manualId,
+        task_id: task.id,
+        description: task.request.description,
+        category: task.request.category,
+        task_type: task.request.task_type,
+        location: task.request.location ?? null,
+        budget: task.request.budget,
+        deadline: task.request.deadline,
+        proof_required: task.request.proof_required,
+        quality_sla: task.request.quality_sla,
+        metadata: task.request.metadata,
+      });
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), WEBHOOK_TIMEOUT_MS);
+      try {
+        const response = await safeFetch(this.webhookUrl, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body,
+          signal: controller.signal,
+        });
+        if (!response.ok) {
+          this.log(`Manual webhook returned HTTP ${response.status} for task ${task.id}`);
+        }
+      } catch (err) {
+        this.log(`Manual webhook failed for task ${task.id}: ${sanitizeErrorMessage(err)}`);
+      } finally {
+        clearTimeout(timeout);
+      }
     } else {
       this.log(
         `Task ${task.id} created as manual task ${manualId}. ` +

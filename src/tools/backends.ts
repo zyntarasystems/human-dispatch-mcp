@@ -9,7 +9,7 @@ export function registerBackendsTool(
     "human_list_backends",
     `List all available backend services and their capabilities.
 
-Shows which backends are configured (have API keys), what types of tasks they support, their regional availability, budget ranges, and average completion times.
+Shows which backends are configured and ready, what types of tasks they support, their regional availability, budget ranges, and average completion times.
 
 Use this to understand what backends are available before dispatching a task, or to debug why a task was routed to a particular backend.
 
@@ -23,8 +23,8 @@ RETURNS: Array of backend capabilities including:
 - available_regions: Where it operates
 - min/max_budget_usd: Budget range
 - avg_completion_minutes: Typical turnaround time
-- requires_api_key: Whether an API key is needed
-- configured: Whether the API key is present and the backend is ready
+- requires_api_key: Whether external credentials are needed
+- configured: Whether the backend is ready
 
 EXAMPLES:
 1. List all backends: {} (no parameters needed)

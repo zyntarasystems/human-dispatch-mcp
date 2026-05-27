@@ -13,9 +13,12 @@ function sanitizeProvider(provider: WebhookProvider): Omit<WebhookProvider, "web
   return safe;
 }
 
+type ProviderVerifier = (provider: WebhookProvider) => Promise<boolean>;
+
 export function registerProviderTools(
   server: McpServer,
   registry: ProviderRegistry,
+  verifier: ProviderVerifier = verifyProviderEndpoint,
 ): void {
   // ─── human_register_provider ────────────────────────────
   server.tool(
@@ -56,16 +59,35 @@ Expected response: { "accepted": true, "external_id": "your-id" } or { "accepted
         min_budget_usd: parsed.min_budget_usd,
         max_budget_usd: parsed.max_budget_usd,
         max_concurrent_tasks: parsed.max_concurrent_tasks,
-      });
+      }, { active: false });
 
       // Attempt verification ping
-      let verificationStatus: "reachable" | "unreachable" | "skipped" = "skipped";
+      let verificationStatus: "reachable" | "unreachable" = "unreachable";
       try {
-        const reachable = await verifyProviderEndpoint(provider);
+        const reachable = await verifier(provider);
         verificationStatus = reachable ? "reachable" : "unreachable";
       } catch {
         verificationStatus = "unreachable";
       }
+
+      if (verificationStatus !== "reachable") {
+        registry.removeProvider(provider.id);
+        return {
+          content: [{
+            type: "text" as const,
+            text: JSON.stringify({
+              provider_id: provider.id,
+              name: provider.name,
+              status: "not_registered",
+              verification_status: verificationStatus,
+              error: "Provider endpoint did not return { verified: true } to provider.verify.",
+            }, null, 2),
+          }],
+          isError: true,
+        };
+      }
+
+      registry.setProviderActive(provider.id, true);
 
       return {
         content: [{

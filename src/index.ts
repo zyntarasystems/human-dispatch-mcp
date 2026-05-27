@@ -54,7 +54,7 @@ function buildMcpServer(deps: ServerDeps): McpServer {
 async function main(): Promise<void> {
   // Provider registry
   const registry = new ProviderRegistry();
-  registry.seedFromEnv();
+  await registry.seedFromEnv();
 
   // Backend adapters
   const webhookAdapter = new WebhookProviderAdapter(registry);

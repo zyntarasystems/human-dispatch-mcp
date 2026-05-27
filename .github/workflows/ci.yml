@@ -1,0 +1,58 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: Validate
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run tests
+        run: npm test
+
+      - name: Run coverage report
+        run: npm run test:coverage
+
+      - name: Check version metadata
+        run: npm run check-versions
+
+      - name: Check publish contents
+        run: npm run pack:check
+
+      - name: Audit production dependencies
+        run: npm audit --omit=dev --audit-level=critical
+
+  audit-advisory:
+    name: High-severity audit advisory
+    runs-on: ubuntu-latest
+    continue-on-error: true
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Audit high-severity production dependencies
+        run: npm audit --omit=dev --audit-level=high

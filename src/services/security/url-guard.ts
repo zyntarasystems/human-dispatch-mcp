@@ -48,15 +48,73 @@ function checkIPv4Forbidden(ip: string): string | null {
   return null;
 }
 
+function parseIPv6Words(ip: string): number[] | null {
+  const stripped = ip.replace(/^\[|\]$/g, "").toLowerCase();
+  const parts = stripped.split("::");
+  if (parts.length > 2) return null;
+
+  const parseSide = (side: string): number[] | null => {
+    if (side === "") return [];
+    const words: number[] = [];
+    for (const part of side.split(":")) {
+      if (part.includes(".")) {
+        const v4Reason = checkIPv4Forbidden(part);
+        if (isIP(part) !== 4 && v4Reason === null) return null;
+        const nums = part.split(".").map(p => parseInt(p, 10));
+        if (nums.length !== 4 || nums.some(n => !Number.isInteger(n) || n < 0 || n > 255)) {
+          return null;
+        }
+        words.push((nums[0]! << 8) | nums[1]!);
+        words.push((nums[2]! << 8) | nums[3]!);
+      } else {
+        if (!/^[0-9a-f]{1,4}$/.test(part)) return null;
+        words.push(parseInt(part, 16));
+      }
+    }
+    return words;
+  };
+
+  const left = parseSide(parts[0] ?? "");
+  const right = parseSide(parts[1] ?? "");
+  if (!left || !right) return null;
+
+  if (parts.length === 1) {
+    return left.length === 8 ? left : null;
+  }
+
+  const missing = 8 - left.length - right.length;
+  if (missing < 1) return null;
+  return [...left, ...Array(missing).fill(0), ...right];
+}
+
+function ipv4FromWords(high: number, low: number): string {
+  return [
+    (high >> 8) & 0xff,
+    high & 0xff,
+    (low >> 8) & 0xff,
+    low & 0xff,
+  ].join(".");
+}
+
 function checkIPv6Forbidden(ip: string): string | null {
   const stripped = ip.replace(/^\[|\]$/g, "").toLowerCase();
   if (stripped === "::" || stripped === "::1") return "IPv6 loopback/unspecified";
 
-  if (stripped.startsWith("::ffff:")) {
-    const tail = stripped.slice(7);
-    if (isIP(tail) === 4) {
-      const v4Reason = checkIPv4Forbidden(tail);
+  const words = parseIPv6Words(stripped);
+  if (words) {
+    const firstFiveZero = words.slice(0, 5).every(w => w === 0);
+    if (firstFiveZero && words[5] === 0xffff) {
+      const mapped = ipv4FromWords(words[6]!, words[7]!);
+      const v4Reason = checkIPv4Forbidden(mapped);
       if (v4Reason) return `IPv4-mapped IPv6: ${v4Reason}`;
+    }
+    const firstSixZero = words.slice(0, 6).every(w => w === 0);
+    if (firstSixZero && words[6] !== 0) {
+      const compatible = ipv4FromWords(words[6], words[7]!);
+      const v4Reason = checkIPv4Forbidden(compatible);
+      return v4Reason
+        ? `IPv4-compatible IPv6: ${v4Reason}`
+        : "IPv4-compatible IPv6";
     }
   }
 
@@ -178,6 +236,9 @@ export async function safeFetch(rawUrl: string, init?: RequestInit): Promise<Res
  * provider's hostname or IP back to whoever queries task status.
  */
 export function sanitizeErrorMessage(err: unknown): string {
+  if (err instanceof UrlValidationError) {
+    return "URL failed public-host validation";
+  }
   const raw = err instanceof Error ? err.message : String(err);
   let msg = raw.replace(
     /\b(ENOTFOUND|ECONNREFUSED|ECONNRESET|EHOSTUNREACH|EHOSTDOWN|ETIMEDOUT|EPROTO|EAI_AGAIN|ECERTHOSTNAMEMISMATCH|ENETUNREACH)\b[\s:]*\S+/g,
