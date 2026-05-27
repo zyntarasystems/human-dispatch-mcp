@@ -83,6 +83,16 @@ export class Router {
   }
 
   private buildRoutingChain(task: Task): BackendId[] {
+    const appendManualLast = (ids: BackendId[]): BackendId[] => {
+      const chain: BackendId[] = [];
+      for (const id of ids) {
+        if (id === BackendId.MANUAL) continue;
+        if (!chain.includes(id)) chain.push(id);
+      }
+      chain.push(BackendId.MANUAL);
+      return chain;
+    };
+
     // 1. If agent specified preferred_backends, try those first
     if (task.request.preferred_backends && task.request.preferred_backends.length > 0) {
       const chain = [...task.request.preferred_backends];
@@ -92,20 +102,12 @@ export class Router {
           if (!chain.includes(fb)) chain.push(fb);
         }
       }
-      // Always include manual as ultimate fallback
-      if (!chain.includes(BackendId.MANUAL)) {
-        chain.push(BackendId.MANUAL);
-      }
-      return chain;
+      return appendManualLast(chain);
     }
 
     // 2. If agent specified fallback_chain, use it
     if (task.request.fallback_chain && task.request.fallback_chain.length > 0) {
-      const chain = [...task.request.fallback_chain];
-      if (!chain.includes(BackendId.MANUAL)) {
-        chain.push(BackendId.MANUAL);
-      }
-      return chain;
+      return appendManualLast(task.request.fallback_chain);
     }
 
     // 3. Score and rank configured backends
@@ -144,13 +146,6 @@ export class Router {
     // Sort by score descending
     scored.sort((a, b) => b.score - a.score);
 
-    const chain = scored.map(s => s.id);
-
-    // Always include manual as ultimate fallback
-    if (!chain.includes(BackendId.MANUAL)) {
-      chain.push(BackendId.MANUAL);
-    }
-
-    return chain;
+    return appendManualLast(scored.map(s => s.id));
   }
 }

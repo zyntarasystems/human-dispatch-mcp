@@ -15,6 +15,7 @@ function readJson(path) {
 }
 
 const pkg = readJson("package.json");
+const lock = readJson("package-lock.json");
 const server = readJson("server.json");
 const constants = readFileSync(join(repoRoot, "src/constants.ts"), "utf8");
 
@@ -35,6 +36,10 @@ const serverPackageIdentifier = server.packages?.[0]?.identifier;
 const checks = [
   ["package.json:version === server.json:version",
     pkg.version, server.version],
+  ["package.json:version === package-lock.json:version",
+    pkg.version, lock.version],
+  ["package.json:version === package-lock.json:packages[\"\"].version",
+    pkg.version, lock.packages?.[""]?.version],
   ["package.json:version === server.json:packages[0].version",
     pkg.version, serverPackageVersion],
   ["package.json:version === src/constants.ts SERVER_VERSION",

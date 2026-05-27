@@ -3,6 +3,12 @@ import { TaskIdSchema } from "../schemas/task.js";
 import { TaskStore } from "../services/task-store.js";
 import { BackendAdapter, BackendId, TaskStatus } from "../types.js";
 
+const TERMINAL_STATUSES: ReadonlySet<TaskStatus> = new Set([
+  TaskStatus.COMPLETED,
+  TaskStatus.FAILED,
+  TaskStatus.CANCELLED,
+]);
+
 export function registerStatusTool(
   server: McpServer,
   taskStore: TaskStore,
@@ -41,6 +47,15 @@ DON'T USE WHEN:
             }),
           }],
           isError: true,
+        };
+      }
+
+      if (TERMINAL_STATUSES.has(task.status)) {
+        return {
+          content: [{
+            type: "text" as const,
+            text: JSON.stringify(task, null, 2),
+          }],
         };
       }
 

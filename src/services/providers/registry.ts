@@ -6,12 +6,11 @@ import {
   WebhookProvider,
 } from "../../types.js";
 import { ProviderRegistrationSchema } from "../../schemas/task.js";
+import { sanitizeForLog } from "../security/logging.js";
+import { verifyProviderEndpoint } from "./webhook.js";
 
 type RegisterProviderParams = z.infer<typeof ProviderRegistrationSchema>;
-
-function sanitizeForLog(value: unknown): string {
-  return String(value).replace(/[\r\n\t]/g, " ").slice(0, 200);
-}
+type ProviderVerifier = (provider: WebhookProvider) => Promise<boolean>;
 
 // Match a task region against a provider's region list.
 // "*" wildcards match anything. Comparisons are case-insensitive, and a
@@ -39,7 +38,10 @@ export class ProviderRegistry {
   private static readonly MAX_PROVIDERS = 1000;
   private readonly providers = new Map<string, WebhookProvider>();
 
-  registerProvider(params: RegisterProviderParams): WebhookProvider {
+  registerProvider(
+    params: RegisterProviderParams,
+    options: { active?: boolean } = {},
+  ): WebhookProvider {
     if (this.providers.size >= ProviderRegistry.MAX_PROVIDERS) {
       throw new Error(
         `Provider registry capacity exceeded (${ProviderRegistry.MAX_PROVIDERS}). ` +
@@ -57,7 +59,7 @@ export class ProviderRegistry {
       min_budget_usd: params.min_budget_usd,
       max_budget_usd: params.max_budget_usd,
       max_concurrent_tasks: params.max_concurrent_tasks,
-      is_active: true,
+      is_active: options.active ?? true,
       current_task_count: 0,
       stats: {
         completed_count: 0,
@@ -72,6 +74,15 @@ export class ProviderRegistry {
     this.providers.set(provider.id, provider);
     console.error(`[registry] Provider registered: ${sanitizeForLog(provider.name)} (${provider.id})`);
     return provider;
+  }
+
+  setProviderActive(id: string, active: boolean): boolean {
+    const provider = this.providers.get(id);
+    if (!provider) return false;
+    provider.is_active = active;
+    provider.last_seen_at = new Date().toISOString();
+    console.error(`[registry] Provider ${id} active=${active}`);
+    return true;
   }
 
   removeProvider(id: string): boolean {
@@ -154,11 +165,12 @@ export class ProviderRegistry {
     provider.last_seen_at = new Date().toISOString();
   }
 
-  incrementTaskCount(id: string): void {
+  tryReserveTaskSlot(id: string): boolean {
     const provider = this.providers.get(id);
-    if (provider) {
-      provider.current_task_count++;
-    }
+    if (!provider || !provider.is_active) return false;
+    if (provider.current_task_count >= provider.max_concurrent_tasks) return false;
+    provider.current_task_count++;
+    return true;
   }
 
   decrementTaskCount(id: string): void {
@@ -175,7 +187,7 @@ export class ProviderRegistry {
     return false;
   }
 
-  seedFromEnv(): void {
+  async seedFromEnv(verifier: ProviderVerifier = verifyProviderEndpoint): Promise<void> {
     const raw = process.env["PROVIDERS_CONFIG"];
     if (!raw) return;
 
@@ -192,6 +204,7 @@ export class ProviderRegistry {
     }
 
     let seeded = 0;
+    let skipped = 0;
     for (const entry of parsed) {
       const result = ProviderRegistrationSchema.safeParse(entry);
       if (!result.success) {
@@ -200,12 +213,32 @@ export class ProviderRegistry {
           .map(e => `${e.path.join(".") || "<root>"}: ${e.message}`)
           .join("; ");
         console.error(`[registry] Skipping invalid provider config "${sanitizeForLog(name ?? "unknown")}": ${sanitizeForLog(issues)}`);
+        skipped++;
         continue;
       }
-      this.registerProvider(result.data);
+
+      const provider = this.registerProvider(result.data, { active: false });
+      let verified = false;
+      try {
+        verified = await verifier(provider);
+      } catch {
+        verified = false;
+      }
+
+      if (!verified) {
+        this.removeProvider(provider.id);
+        console.error(
+          `[registry] Skipping provider config "${sanitizeForLog(provider.name)}" (${provider.id}): ` +
+          "provider.verify did not return { verified: true }",
+        );
+        skipped++;
+        continue;
+      }
+
+      this.setProviderActive(provider.id, true);
       seeded++;
     }
 
-    console.error(`[registry] Seeded ${seeded} provider(s) from PROVIDERS_CONFIG`);
+    console.error(`[registry] Seeded ${seeded} verified provider(s) from PROVIDERS_CONFIG; skipped ${skipped}`);
   }
 }
